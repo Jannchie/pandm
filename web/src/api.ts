@@ -16,12 +16,6 @@ export interface Run {
   summary: Record<string, number>
 }
 
-export interface MetricKey {
-  key: string
-  points: number
-  last_step: number
-}
-
 export interface Series {
   steps: number[]
   values: number[]
@@ -83,8 +77,6 @@ export const fetchProjects = () => get<Project[]>('/api/projects')
 
 export const fetchRuns = (project?: string) =>
   get<Run[]>(`/api/runs${project ? `?project=${encodeURIComponent(project)}` : ''}`)
-
-export const fetchMetricKeys = (runId: string) => get<MetricKey[]>(`/api/runs/${runId}/metrics`)
 
 export const fetchSeries = (runId: string, key: string) =>
   get<Series>(`/api/runs/${runId}/metrics/${encodeURIComponent(key)}`)

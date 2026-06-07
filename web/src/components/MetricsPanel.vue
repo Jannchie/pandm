@@ -1,24 +1,14 @@
 <script setup lang="ts">
-import { computed, reactive, watchEffect } from 'vue'
-import { getMetricKeys, selectedRuns, state } from '../store'
+import { computed } from 'vue'
+import { selectedRuns, state } from '../store'
 import MetricChart from './MetricChart.vue'
 
-const keysByRun = reactive<Record<string, string[]>>({})
-
-watchEffect(() => {
-  for (const run of selectedRuns.value) {
-    getMetricKeys(run)
-      .then((ks) => {
-        keysByRun[run.id] = ks.map((k) => k.key)
-      })
-      .catch(() => {})
-  }
-})
-
+// the runs polling already carries summary (last value per key) — its keys
+// are exactly the metric keys, no per-run /metrics requests needed
 const unionKeys = computed(() => {
   const set = new Set<string>()
   for (const run of selectedRuns.value) {
-    for (const k of keysByRun[run.id] ?? []) set.add(k)
+    for (const k of Object.keys(run.summary)) set.add(k)
   }
   return [...set].sort()
 })
