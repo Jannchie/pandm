@@ -9,6 +9,7 @@ export const state = reactive({
   cliCode: null as string | null, // pending `pandm login` approval code (?cli=)
   ready: false,
   offline: false,
+  live: true, // auto-refresh switch; off = data frozen until toggled back
   projects: [] as api.Project[],
   project: '' as string, // auto-picked on first load (most recently active)
   runs: [] as api.Run[],
@@ -112,15 +113,21 @@ function resumePolling() {
 }
 
 function schedule() {
-  if (!polling) return
+  if (!polling || !state.live) return
   clearTimeout(timer)
   const delay = state.runs.some((r) => r.status === 'running') ? pollMs : IDLE_POLL_MS
   timer = setTimeout(() => refresh().then(schedule), delay)
 }
 
+export function toggleLive() {
+  state.live = !state.live
+  clearTimeout(timer)
+  if (state.live && polling) resumePolling()
+}
+
 // a backgrounded tab would otherwise poll (and bill D1 reads) all day
 document.addEventListener('visibilitychange', () => {
-  if (!polling) return
+  if (!polling || !state.live) return
   clearTimeout(timer)
   if (document.visibilityState === 'visible') resumePolling()
 })

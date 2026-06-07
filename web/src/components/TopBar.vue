@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { rotateApiKey } from '../api'
 import { runColor } from '../colors'
-import { anyRunning, selectAll, selectNone, setProject, signOut, state, toggleRun } from '../store'
+import { anyRunning, selectAll, selectNone, setProject, signOut, state, toggleLive, toggleRun } from '../store'
 
 const projOpen = ref(false)
 const runsOpen = ref(false)
@@ -140,11 +140,14 @@ async function rotateKey() {
 
     <div class="flex-1" />
 
-    <!-- status -->
+    <!-- status + auto-refresh switch -->
     <div class="flex items-center gap-2 text-[12px] text-fg-dim">
       <template v-if="state.offline">
         <span class="w-1.5 h-1.5 rounded-full bg-err" />
         <span class="text-err">offline</span>
+      </template>
+      <template v-else-if="!state.live">
+        <span>paused</span>
       </template>
       <template v-else-if="anyRunning">
         <span class="w-1.5 h-1.5 rounded-full bg-ok pulse" />
@@ -153,6 +156,17 @@ async function rotateKey() {
       <template v-else>
         <span>{{ state.runs.length }} runs</span>
       </template>
+      <button
+        class="relative w-7 h-4 rounded-full transition-colors cursor-pointer ml-1"
+        :class="state.live ? 'bg-ok/50' : 'bg-elev'"
+        :title="state.live ? 'auto-refresh on' : 'auto-refresh off'"
+        @click="toggleLive"
+      >
+        <span
+          class="absolute top-0.5 w-3 h-3 rounded-full bg-fg transition-all"
+          :class="state.live ? 'left-3.5' : 'left-0.5'"
+        />
+      </button>
     </div>
 
     <!-- account -->
