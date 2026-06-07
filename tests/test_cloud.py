@@ -371,3 +371,76 @@ def test_dual_write_against_multi_user_server(local_dir, mu):
 
     assert client.get(f"/api/runs/{run.id}", headers={"x-api-key": alice["api_key"]}).status_code == 200
     assert client.get(f"/api/runs/{run.id}", headers={"x-api-key": bob["api_key"]}).status_code == 404
+
+
+# ------------------------------------------------------------------ cli delete
+
+
+def _seed_run(directory, run_id="run00001", project="p"):
+    store = LocalStore(directory)
+    store.create_run(run_id, project, "n", {})
+    return store
+
+
+def test_cli_delete_local_only_when_logged_out(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from pandm.cli import app as cli_app
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))  # no saved credentials
+    data_dir = tmp_path / ".pandm"
+    _seed_run(data_dir)
+
+    result = CliRunner().invoke(cli_app, ["delete", "run00001", "--dir", str(data_dir), "--yes"])
+    assert result.exit_code == 0
+    assert LocalStore(data_dir).get_run("run00001") is None
+
+
+def test_cli_delete_also_deletes_cloud_copy(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from pandm.cli import app as cli_app
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    credentials.save(SERVER_URL, "sekrit")
+    server_client = TestClient(create_app(tmp_path / "server", api_key="sekrit"))
+    monkeypatch.setattr(
+        "httpx.delete",
+        lambda url, **kw: server_client.delete(url.removeprefix(SERVER_URL), headers=kw.get("headers")),
+    )
+
+    data_dir = tmp_path / ".pandm"
+    _seed_run(data_dir)
+    _seed_run(tmp_path / "server")
+
+    result = CliRunner().invoke(cli_app, ["delete", "run00001", "--dir", str(data_dir), "--yes"])
+    assert result.exit_code == 0
+    assert LocalStore(data_dir).get_run("run00001") is None
+    assert LocalStore(tmp_path / "server").get_run("run00001") is None
+
+
+def test_cli_delete_local_only_flag_keeps_cloud_copy(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from pandm.cli import app as cli_app
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    credentials.save(SERVER_URL, "sekrit")
+    monkeypatch.setattr("httpx.delete", lambda *a, **kw: pytest.fail("must not touch the server"))
+
+    data_dir = tmp_path / ".pandm"
+    _seed_run(data_dir)
+
+    result = CliRunner().invoke(cli_app, ["delete", "run00001", "--dir", str(data_dir), "--yes", "--local-only"])
+    assert result.exit_code == 0
+    assert LocalStore(data_dir).get_run("run00001") is None
+
+
+def test_cli_delete_missing_everywhere_fails(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from pandm.cli import app as cli_app
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    result = CliRunner().invoke(cli_app, ["delete", "nope", "--dir", str(tmp_path / ".pandm"), "--yes"])
+    assert result.exit_code == 1

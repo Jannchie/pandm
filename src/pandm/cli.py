@@ -113,17 +113,44 @@ def delete(
     run_id: str,
     directory: Optional[Path] = DirOption,
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
+    local_only: bool = typer.Option(False, "--local-only", help="Keep the cloud copy (if signed in)."),
 ) -> None:
-    """Delete a run and its media files."""
+    """Delete a run and its media files — locally and, when signed in, on the cloud server."""
+    from . import credentials
+
     store = LocalStore(resolve_dir(directory))
     run = store.get_run(run_id)
-    if run is None:
+    creds = None if local_only else credentials.load()
+    if run is None and creds is None:
         console.print(f"[red]run {run_id} not found[/red]")
         raise typer.Exit(1)
-    if not yes and not typer.confirm(f"delete run {run['name']} ({run_id})?"):
+    name = run["name"] if run else run_id
+    if not yes and not typer.confirm(f"delete run {name} ({run_id})?"):
         raise typer.Exit(0)
-    store.delete_run(run_id)
-    console.print(f"[dim]deleted {run_id}[/dim]")
+
+    deleted = False
+    if run is not None:
+        store.delete_run(run_id)
+        deleted = True
+        console.print(f"[dim]deleted {run_id} locally[/dim]")
+    if creds:
+        import httpx
+
+        try:
+            resp = httpx.delete(
+                f"{creds['server']}/api/runs/{run_id}", headers={"x-api-key": creds["api_key"]}, timeout=10
+            )
+        except httpx.HTTPError as exc:
+            console.print(f"[yellow]cloud delete failed ({exc}) — run pandm delete again later[/yellow]")
+        else:
+            if resp.status_code == 200:
+                deleted = True
+                console.print(f"[dim]deleted {run_id} on {creds['server']}[/dim]")
+            elif resp.status_code != 404:  # 404 = never synced or already gone
+                console.print(f"[yellow]cloud delete failed: HTTP {resp.status_code}[/yellow]")
+    if not deleted:
+        console.print(f"[red]run {run_id} not found[/red]")
+        raise typer.Exit(1)
 
 
 @app.command()
