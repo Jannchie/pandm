@@ -3,6 +3,7 @@
   "name": "pandm",
   "main": "src/index.ts",
   "compatibility_date": "2025-09-01",
+  "routes": [{ "pattern": "pandm.jannchie.com", "custom_domain": true }],
   // dashboard SPA — build it first: pnpm -C ../web build
   "assets": {
     "directory": "../src/pandm/static",
@@ -13,7 +14,7 @@
     {
       "binding": "DB",
       "database_name": "pandm",
-      "database_id": "REPLACE_AFTER_wrangler_d1_create",
+      "database_id": "54cfe04c-38d9-4552-8143-25b2f5ea5bf6",
       "migrations_dir": "migrations"
     }
   ],
