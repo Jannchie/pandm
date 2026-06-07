@@ -86,16 +86,19 @@ export async function refresh() {
     if (err instanceof api.HttpError && err.status === 401) {
       // session expired mid-flight — back to the login gate
       state.auth.mode = 'anon'
-      clearInterval(timer)
+      polling = false
+      clearTimeout(timer)
       return
     }
     state.offline = true
   }
 }
 
-let timer: ReturnType<typeof setInterval> | undefined
+let timer: ReturnType<typeof setTimeout> | undefined
 let pollMs = 2500
 let polling = false
+
+const IDLE_POLL_MS = 15_000 // nothing running -> nothing new to fetch, poll lazily
 
 export function startPolling(intervalMs = 2500) {
   pollMs = intervalMs
@@ -104,15 +107,21 @@ export function startPolling(intervalMs = 2500) {
 }
 
 function resumePolling() {
-  clearInterval(timer)
-  refresh()
-  timer = setInterval(refresh, pollMs)
+  clearTimeout(timer)
+  refresh().then(schedule)
+}
+
+function schedule() {
+  if (!polling) return
+  clearTimeout(timer)
+  const delay = state.runs.some((r) => r.status === 'running') ? pollMs : IDLE_POLL_MS
+  timer = setTimeout(() => refresh().then(schedule), delay)
 }
 
 // a backgrounded tab would otherwise poll (and bill D1 reads) all day
 document.addEventListener('visibilitychange', () => {
   if (!polling) return
-  clearInterval(timer)
+  clearTimeout(timer)
   if (document.visibilityState === 'visible') resumePolling()
 })
 
@@ -143,7 +152,8 @@ export async function bootstrap() {
 
 export async function signOut() {
   await api.logout().catch(() => {})
-  clearInterval(timer)
+  polling = false
+  clearTimeout(timer)
   state.auth.mode = 'anon'
   state.auth.user = null
 }
