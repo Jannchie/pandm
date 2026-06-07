@@ -8,11 +8,17 @@ started during an outage still shows up once the server is back.
 
 from __future__ import annotations
 
+import logging
 import sys
 import time
 from typing import Any
 
 import httpx
+
+# httpx logs every request at INFO ("HTTP Request: POST …/metrics 200 OK") —
+# pure noise inside a training loop that pushes metrics every couple of seconds
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 _RETRIES = 3
 _COOLDOWN = 30.0  # seconds to back off after the server is deemed unreachable
