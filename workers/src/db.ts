@@ -20,6 +20,7 @@ export interface RunRow {
   updated_at: number
   finished_at: number | null
   user_id: number
+  summary: string | null // materialized {key: lastValue}; NULL = pre-migration row
 }
 
 export interface MetricIn {
@@ -105,15 +106,24 @@ export async function createRun(
   const ts = createdAt ?? now()
   await db
     .prepare(
-      `INSERT OR IGNORE INTO runs (id, project, name, status, config, created_at, updated_at, user_id)
-       VALUES (?1, ?2, ?3, 'running', ?4, ?5, ?6, ?7)`,
+      `INSERT OR IGNORE INTO runs (id, project, name, status, config, created_at, updated_at, user_id, summary)
+       VALUES (?1, ?2, ?3, 'running', ?4, ?5, ?6, ?7, '{}')`,
     )
     .bind(runId, project, name, JSON.stringify(config ?? {}), ts, ts, userId)
     .run()
 }
 
+export interface RunMeta {
+  user_id: number
+  updated_at: number
+}
+
+/** Owner + freshness in one row read — the cache key for run-scoped responses. */
+export const runMeta = async (db: D1Database, runId: string): Promise<RunMeta | null> =>
+  db.prepare('SELECT user_id, updated_at FROM runs WHERE id = ?1').bind(runId).first<RunMeta>()
+
 export const runOwner = async (db: D1Database, runId: string): Promise<number | null> => {
-  const row = await db.prepare('SELECT user_id FROM runs WHERE id = ?1').bind(runId).first<{ user_id: number }>()
+  const row = await runMeta(db, runId)
   return row?.user_id ?? null
 }
 
@@ -147,23 +157,38 @@ async function summaries(db: D1Database, runIds: string[]): Promise<Record<strin
   return out
 }
 
+/** Aggregate + write back the summaries of pre-migration rows (once per run). */
+async function backfillSummaries(db: D1Database, rows: RunRow[]): Promise<Record<string, Record<string, number>>> {
+  const missing = rows.filter((r) => r.summary === null)
+  if (missing.length === 0) return {}
+  const sums = await summaries(
+    db,
+    missing.map((r) => r.id),
+  )
+  await db.batch(
+    missing.map((r) =>
+      db
+        .prepare('UPDATE runs SET summary = ?1 WHERE id = ?2 AND summary IS NULL')
+        .bind(JSON.stringify(sums[r.id] ?? {}), r.id),
+    ),
+  )
+  return sums
+}
+
 export async function listRuns(db: D1Database, userId: number, project: string | null) {
   const stmt = project
     ? db.prepare('SELECT * FROM runs WHERE user_id = ?1 AND project = ?2 ORDER BY created_at DESC').bind(userId, project)
     : db.prepare('SELECT * FROM runs WHERE user_id = ?1 ORDER BY created_at DESC').bind(userId)
   const { results } = await stmt.all<RunRow>()
-  const sums = await summaries(
-    db,
-    results.map((r) => r.id),
-  )
-  return results.map((r) => runToDict(r, sums[r.id] ?? {}))
+  const backfilled = await backfillSummaries(db, results)
+  return results.map((r) => runToDict(r, r.summary !== null ? JSON.parse(r.summary) : (backfilled[r.id] ?? {})))
 }
 
 export async function getRun(db: D1Database, runId: string, userId: number) {
   const row = await db.prepare('SELECT * FROM runs WHERE id = ?1').bind(runId).first<RunRow>()
   if (!row || row.user_id !== userId) return null // foreign run is indistinguishable from absent
-  const sums = await summaries(db, [runId])
-  return runToDict(row, sums[runId] ?? {})
+  const backfilled = await backfillSummaries(db, [row])
+  return runToDict(row, row.summary !== null ? JSON.parse(row.summary) : (backfilled[runId] ?? {}))
 }
 
 export async function deleteRun(db: D1Database, runId: string): Promise<string[]> {
@@ -193,15 +218,32 @@ export const finishRun = (db: D1Database, runId: string, status: string, finishe
 
 // ----------------------------------------------------------------- metrics
 
+/** Last pushed value per key — the increment to json_patch into runs.summary. */
+const lastByKey = (rows: MetricIn[]): Record<string, number> => {
+  const out: Record<string, number> = {}
+  for (const r of rows) out[r.key] = r.value // rows arrive in client rowid order
+  return out
+}
+
+/** The freshness+summary update every ingest batch carries (same single row write).
+ * A NULL summary (pre-migration run) stays NULL: the read path backfills it from
+ * the full history; patching '{}' here instead would shadow older keys. */
+const touchRun = (db: D1Database, runId: string, ts: number, rows: MetricIn[]) =>
+  db
+    .prepare(
+      `UPDATE runs SET updated_at = ?1,
+         summary = CASE WHEN summary IS NULL THEN NULL ELSE json_patch(summary, ?2) END
+       WHERE id = ?3`,
+    )
+    .bind(ts, JSON.stringify(lastByKey(rows)), runId)
+
 /** Plain ingest (legacy PANDM_REMOTE path: no seq, no dedup). */
 export async function logMetrics(db: D1Database, runId: string, rows: MetricIn[]): Promise<void> {
   if (rows.length === 0) return
   const stmts = rows.map((r) =>
     db.prepare('INSERT INTO metrics (run_id, key, step, value, ts) VALUES (?1, ?2, ?3, ?4, ?5)').bind(runId, r.key, r.step, r.value, r.ts),
   )
-  stmts.push(
-    db.prepare('UPDATE runs SET updated_at = ?1 WHERE id = ?2').bind(Math.max(...rows.map((r) => r.ts)), runId),
-  )
+  stmts.push(touchRun(db, runId, Math.max(...rows.map((r) => r.ts)), rows))
   await db.batch(stmts)
 }
 
@@ -227,7 +269,7 @@ export async function logMetricsSeq(db: D1Database, runId: string, rows: MetricI
          ON CONFLICT(run_id) DO UPDATE SET last_metrics_rowid = MAX(last_metrics_rowid, excluded.last_metrics_rowid)`,
       )
       .bind(runId, hi),
-    db.prepare('UPDATE runs SET updated_at = ?1 WHERE id = ?2').bind(Math.max(...fresh.map((r) => r.ts)), runId),
+    touchRun(db, runId, Math.max(...fresh.map((r) => r.ts)), fresh),
   )
   await db.batch(stmts) // one transaction, one roundtrip
   return fresh.length
@@ -245,20 +287,17 @@ export const metricKeys = async (db: D1Database, runId: string) => {
 }
 
 export async function metricSeries(db: D1Database, runId: string, key: string, maxPoints = 1500) {
-  const total = await db
-    .prepare('SELECT COUNT(*) AS n FROM metrics WHERE run_id = ?1 AND key = ?2')
-    .bind(runId, key)
-    .first<{ n: number }>()
-  if (!total || total.n === 0) return { steps: [], values: [], ts: [] }
-  const stride = Math.max(1, Math.ceil(total.n / maxPoints))
+  // COUNT(*) OVER () folds the row count into the same scan — half the rows read
   const { results } = await db
     .prepare(
       `SELECT step, value, ts FROM (
-         SELECT step, value, ts, ROW_NUMBER() OVER (ORDER BY step, rowid) AS rn
+         SELECT step, value, ts,
+                ROW_NUMBER() OVER (ORDER BY step, rowid) AS rn,
+                COUNT(*) OVER () AS total
          FROM metrics WHERE run_id = ?1 AND key = ?2
-       ) WHERE (rn - 1) % ?3 = 0 OR rn = ?4`,
+       ) WHERE (rn - 1) % MAX(1, (total + ?3 - 1) / ?3) = 0 OR rn = total`,
     )
-    .bind(runId, key, stride, total.n)
+    .bind(runId, key, Math.max(1, maxPoints))
     .all<{ step: number; value: number; ts: number }>()
   return {
     steps: results.map((r) => r.step),

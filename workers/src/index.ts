@@ -16,7 +16,7 @@ export interface Env {
   PANDM_SECRET_KEY: string
 }
 
-type Ctx = { Bindings: Env; Variables: { user: db.User } }
+type Ctx = { Bindings: Env; Variables: { user: db.User; runMeta: db.RunMeta } }
 
 const app = new Hono<Ctx>()
 
@@ -40,11 +40,35 @@ app.use('/api/*', async (c, next) => {
   return next()
 })
 
-/** In multi-user mode a foreign run is indistinguishable from a missing one. */
+/** In multi-user mode a foreign run is indistinguishable from a missing one.
+ * Stashes the run's meta (one row read) for the response cache key below. */
 async function ownerGuard(c: any, runId: string): Promise<Response | null> {
-  const owner = await db.runOwner(c.env.DB, runId)
-  if (owner !== c.get('user').id) return detail(c, 404, 'run not found')
+  const meta = await db.runMeta(c.env.DB, runId)
+  if (!meta || meta.user_id !== c.get('user').id) return detail(c, 404, 'run not found')
+  c.set('runMeta', meta)
   return null
+}
+
+/** Serve a run-scoped GET from the edge cache, keyed by the run's updated_at —
+ * a finished run never changes, so its repeat reads cost zero D1 rows. The
+ * external response carries no max-age (its URL is unversioned); only the
+ * internal versioned copy is long-lived. */
+async function cachedJson(c: any, compute: () => Promise<unknown>): Promise<Response> {
+  const meta: db.RunMeta = c.get('runMeta')
+  const key = new Request(`https://pandm.cache/v1?u=${meta.updated_at}&q=${encodeURIComponent(c.req.url)}`)
+  const hit = await caches.default.match(key)
+  if (hit) return new Response(hit.body, { headers: { 'Content-Type': 'application/json' } })
+  const data = await compute()
+  const body = JSON.stringify(data)
+  c.executionCtx.waitUntil(
+    caches.default.put(
+      key,
+      new Response(body, {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=31536000' },
+      }),
+    ),
+  )
+  return new Response(body, { headers: { 'Content-Type': 'application/json' } })
 }
 
 // ----------------------------------------------------------------- read API
@@ -62,7 +86,7 @@ app.get('/api/runs/:id', async (c) => {
 
 app.get('/api/runs/:id/metrics', async (c) => {
   const runId = c.req.param('id')
-  return (await ownerGuard(c, runId)) ?? c.json(await db.metricKeys(c.env.DB, runId))
+  return (await ownerGuard(c, runId)) ?? cachedJson(c, () => db.metricKeys(c.env.DB, runId))
 })
 
 // metric keys may contain slashes (e.g. "val/loss") — wildcard + manual extraction
@@ -72,16 +96,18 @@ app.get('/api/runs/:id/metrics/*', async (c) => {
   if (guard) return guard
   const key = decodeURIComponent(c.req.path.split('/metrics/')[1] ?? '')
   const maxPoints = Number.parseInt(c.req.query('max_points') ?? '1500')
-  return c.json(await db.metricSeries(c.env.DB, runId, key, maxPoints))
+  return cachedJson(c, () => db.metricSeries(c.env.DB, runId, key, maxPoints))
 })
 
 app.get('/api/runs/:id/media', async (c) => {
   const runId = c.req.param('id')
   const guard = await ownerGuard(c, runId)
   if (guard) return guard
-  const items = (await db.listMedia(c.env.DB, runId, c.req.query('key') ?? null)) as Array<Record<string, unknown>>
-  for (const item of items) item.url = `/api/media/${runId}/${item.filename}`
-  return c.json(items)
+  return cachedJson(c, async () => {
+    const items = (await db.listMedia(c.env.DB, runId, c.req.query('key') ?? null)) as Array<Record<string, unknown>>
+    for (const item of items) item.url = `/api/media/${runId}/${item.filename}`
+    return items
+  })
 })
 
 const MIME: Record<string, string> = {
@@ -97,15 +123,24 @@ app.get('/api/media/:runId/:filename', async (c) => {
   const { runId, filename } = c.req.param()
   const guard = await ownerGuard(c, runId)
   if (guard) return guard
+  const headers = {
+    'Content-Type': MIME[filename.slice(filename.lastIndexOf('.')).toLowerCase()] ?? 'application/octet-stream',
+    'Cache-Control': 'private, max-age=31536000, immutable', // media files never change
+  }
+  // filenames are unique and immutable — edge-cache the bytes, skip repeat R2 reads
+  const key = new Request(`https://pandm.cache/media/${runId}/${filename}`)
+  const hit = await caches.default.match(key)
+  if (hit) return new Response(hit.body, { headers })
   const obj = await c.env.MEDIA.get(`media/${runId}/${filename}`)
   if (!obj) return detail(c, 404, 'file not found')
-  const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase()
-  return new Response(obj.body, {
-    headers: {
-      'Content-Type': MIME[ext] ?? 'application/octet-stream',
-      'Cache-Control': 'private, max-age=31536000, immutable', // media files never change
-    },
-  })
+  const [out, copy] = obj.body.tee()
+  c.executionCtx.waitUntil(
+    caches.default.put(
+      key,
+      new Response(copy, { headers: { ...headers, 'Cache-Control': 'public, max-age=31536000, immutable' } }),
+    ),
+  )
+  return new Response(out, { headers })
 })
 
 // --------------------------------------------------------------- ingest API
