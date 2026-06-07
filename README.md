@@ -58,7 +58,7 @@ python train.py                          # local + cloud
 pandm sync                               # backfill runs whose process already exited
 ```
 
-Each user signs in with GitHub and sees only their own runs. Two interchangeable server implementations speak the same protocol:
+Each user signs in with GitHub and sees only their own runs. Two interchangeable server implementations speak the same protocol — the full walkthrough (OAuth App, custom domain, backups, troubleshooting) is in **[docs/deploy.md](docs/deploy.md)**:
 
 **Cloudflare Workers** (serverless: D1 for metrics, R2 for media — `workers/`):
 
