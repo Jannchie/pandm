@@ -165,6 +165,25 @@ export async function signOut() {
   state.auth.user = null
 }
 
+// ------------------------------------------------------------ preferences
+// view settings survive reloads; URL params (below) still win for deep links
+
+const PREFS_KEY = 'pandm-prefs'
+const PREF_FIELDS = ['tab', 'columns', 'smoothing', 'xAxis', 'logScale'] as const
+
+try {
+  const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}')
+  for (const f of PREF_FIELDS) {
+    if (f in saved && typeof saved[f] === typeof state[f]) (state as any)[f] = saved[f]
+  }
+} catch {
+  /* corrupted prefs are simply ignored */
+}
+
+watchEffect(() => {
+  localStorage.setItem(PREFS_KEY, JSON.stringify(Object.fromEntries(PREF_FIELDS.map((f) => [f, state[f]]))))
+})
+
 // ------------------------------------------------------------- deep links
 // tab / project / selected runs live in the query string, so views are shareable
 
