@@ -4,9 +4,15 @@ import { rotateApiKey } from '../api'
 import { runColor } from '../colors'
 import { anyRunning, selectAll, selectNone, setProject, signOut, state, toggleRun } from '../store'
 
+const projOpen = ref(false)
 const runsOpen = ref(false)
 const userOpen = ref(false)
 const copied = ref(false)
+
+function pickProject(project: string) {
+  projOpen.value = false
+  setProject(project)
+}
 
 const runsLabel = computed(() => {
   if (state.selected.length === 1) {
@@ -49,25 +55,36 @@ async function rotateKey() {
     <!-- breadcrumb: project -->
     <span class="text-fg-dim/60 text-[13px] select-none">/</span>
     <div class="relative">
-      <select
-        :value="state.project"
-        class="appearance-none bg-transparent pl-2 pr-6 py-1 text-[13px] text-fg hover:bg-elev transition-colors cursor-pointer outline-none"
-        @change="setProject(($event.target as HTMLSelectElement).value)"
+      <button
+        class="flex items-center gap-1.5 pl-2 pr-1.5 py-1 text-[13px] hover:bg-elev transition-colors cursor-pointer"
+        :class="state.project ? 'text-fg' : 'text-fg-dim'"
+        @click="projOpen = !projOpen"
       >
-        <option value="">All projects</option>
-        <option v-for="p in state.projects" :key="p.project" :value="p.project">
-          {{ p.project }} ({{ p.runs }})
-        </option>
-      </select>
-      <svg
-        width="11"
-        height="11"
-        viewBox="0 0 24 24"
-        fill="none"
-        class="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-fg-dim"
+        <span class="max-w-40 truncate">{{ state.project || 'no project' }}</span>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" class="text-fg-dim shrink-0">
+          <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </button>
+
+      <div v-if="projOpen" class="fixed inset-0 z-40" @click="projOpen = false" />
+      <div
+        v-if="projOpen"
+        class="absolute left-0 top-full mt-1 w-56 max-h-90 overflow-y-auto bg-panel border border-border shadow-2xl z-50 py-1"
       >
-        <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-      </svg>
+        <button
+          v-for="p in state.projects"
+          :key="p.project"
+          class="w-full text-left flex items-center px-3 py-1.5 text-[12.5px] transition-colors cursor-pointer"
+          :class="p.project === state.project ? 'text-fg bg-elev/70' : 'text-fg-mut hover:bg-elev/40 hover:text-fg'"
+          @click="pickProject(p.project)"
+        >
+          <span class="truncate">{{ p.project }}</span>
+          <span class="ml-auto pl-3 text-[11px] text-fg-dim shrink-0">{{ p.runs }}</span>
+        </button>
+        <div v-if="state.projects.length === 0" class="px-3 py-4 text-center text-[12px] text-fg-dim">
+          No projects yet
+        </div>
+      </div>
     </div>
 
     <!-- breadcrumb: runs -->
