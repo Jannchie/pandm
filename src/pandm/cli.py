@@ -109,6 +109,77 @@ def list_runs(
 
 
 @app.command()
+def show(
+    run_id: str,
+    directory: Optional[Path] = DirOption,
+) -> None:
+    """Show a run's config, summary and logged metrics."""
+    import datetime as dt
+
+    store = LocalStore(resolve_dir(directory))
+    run = store.get_run(run_id)
+    if run is None:
+        console.print(f"[red]run {run_id} not found[/red]")
+        raise typer.Exit(1)
+    status_style = {"running": "bold cyan", "finished": "green", "crashed": "red"}
+    created = dt.datetime.fromtimestamp(run["created_at"]).strftime("%Y-%m-%d %H:%M:%S")
+    console.print(f"\n[bold]{run['name']}[/bold] [dim]({run['id']})[/dim]")
+    console.print(
+        f"[dim]project[/dim] {run['project']}"
+        f"  [dim]status[/dim] [{status_style.get(run['status'], 'white')}]{run['status']}[/]"
+        f"  [dim]created[/dim] {created}"
+    )
+    if run["config"]:
+        console.print("\n[bold dim]CONFIG[/bold dim]")
+        for k, v in sorted(run["config"].items()):
+            console.print(f"  [dim]{k}[/dim] = {v}")
+    keys = store.metric_keys(run_id)
+    if keys:
+        console.print("\n[bold dim]METRICS[/bold dim]")
+        table = Table(box=None, header_style="bold dim", pad_edge=False)
+        for col in ("KEY", "POINTS", "LAST STEP", "LAST VALUE"):
+            table.add_column(col)
+        for k in keys:
+            last = run["summary"].get(k["key"])
+            table.add_row(
+                f"[dim]{k['key']}[/dim]", str(k["points"]), str(k["last_step"]),
+                f"{last:.6g}" if last is not None else "-",
+            )
+        console.print(table)
+    media = store.list_media(run_id)
+    if media:
+        console.print(f"\n[dim]{len(media)} media files — pandm ui to browse[/dim]")
+
+
+@app.command()
+def export(
+    run_id: str,
+    keys: Optional[list[str]] = typer.Option(None, "--key", "-k", help="Metric keys to export (default: all)."),
+    as_json: bool = typer.Option(False, "--json", help="Emit a JSON object instead of CSV rows."),
+    directory: Optional[Path] = DirOption,
+) -> None:
+    """Export full metric series to stdout — CSV (key,step,value,ts) or JSON."""
+    import csv
+    import json
+    import sys
+
+    store = LocalStore(resolve_dir(directory))
+    if store.get_run(run_id) is None:
+        console.print(f"[red]run {run_id} not found[/red]")
+        raise typer.Exit(1)
+    selected = list(keys) if keys else [k["key"] for k in store.metric_keys(run_id)]
+    series = {k: store.metric_series(run_id, k, max_points=2**31) for k in selected}
+    if as_json:
+        json.dump(series, sys.stdout)
+        sys.stdout.write("\n")
+        return
+    writer = csv.writer(sys.stdout)
+    writer.writerow(["key", "step", "value", "ts"])
+    for k, s in series.items():
+        writer.writerows(zip([k] * len(s["steps"]), s["steps"], s["values"], s["ts"]))
+
+
+@app.command()
 def delete(
     run_id: str,
     directory: Optional[Path] = DirOption,

@@ -192,3 +192,37 @@ def test_metric_series_incremental(data_dir):
     client = TestClient(create_app(data_dir))
     resp = client.get("/api/runs/r1/metrics/loss", params={"after_step": 16}).json()
     assert resp["steps"] == [17, 18, 19]
+
+
+def test_cli_show_and_export(data_dir):
+    from typer.testing import CliRunner
+
+    from pandm.cli import app as cli_app
+
+    run = pandm.init(project="p", name="cli-run", config={"lr": 0.1}, directory=data_dir)
+    for step in range(5):
+        run.log({"loss": float(5 - step), "acc": step / 5}, step=step)
+    run.finish()
+
+    runner = CliRunner()
+    shown = runner.invoke(cli_app, ["show", run.id, "--dir", str(data_dir)])
+    assert shown.exit_code == 0
+    assert "cli-run" in shown.output
+    assert "loss" in shown.output and "acc" in shown.output
+    assert "lr" in shown.output
+
+    csv_out = runner.invoke(cli_app, ["export", run.id, "--dir", str(data_dir)])
+    assert csv_out.exit_code == 0
+    lines = csv_out.output.strip().splitlines()
+    assert lines[0] == "key,step,value,ts"
+    assert len(lines) == 1 + 10  # 2 keys x 5 points
+    assert lines[1].startswith("acc,0,")
+
+    one_key = runner.invoke(cli_app, ["export", run.id, "-k", "loss", "--json", "--dir", str(data_dir)])
+    assert one_key.exit_code == 0
+    data = __import__("json").loads(one_key.output)
+    assert list(data) == ["loss"]
+    assert data["loss"]["steps"] == [0, 1, 2, 3, 4]
+
+    missing = runner.invoke(cli_app, ["export", "nope", "--dir", str(data_dir)])
+    assert missing.exit_code == 1

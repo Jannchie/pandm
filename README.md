@@ -39,11 +39,13 @@ with pandm.init(project="mnist") as run:
     run.log({"loss": 0.5})
 ```
 
-List or delete runs from the terminal:
+Inspect, export or delete runs from the terminal:
 
 ```sh
-pandm ls
-pandm delete <run_id>
+pandm ls                          # list runs
+pandm show <run_id>               # config, summary, logged metrics
+pandm export <run_id> > data.csv  # full series as CSV (or --json, -k <key>)
+pandm delete <run_id>             # local + cloud copy when signed in
 ```
 
 Data lives in `./.pandm` by default; override with `--dir` or `PANDM_DIR`.
