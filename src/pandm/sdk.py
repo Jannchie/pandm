@@ -7,8 +7,10 @@
     run.log_image("samples", img, step=10, caption="epoch 1")
     run.finish()
 
-Local mode (default) writes straight to `.pandm/`; set `PANDM_REMOTE` (or pass
-`remote=`) to report to a `pandm server` instance over HTTP instead.
+Local mode (default) writes straight to `.pandm/`. Set `PANDM_REMOTE` (or pass
+`remote=`) to report to a `pandm server` over HTTP instead — or sign in with
+`pandm login` to get dual-write: local stays the source of truth and a
+background thread syncs to the server, backfilling whatever was logged offline.
 """
 
 from __future__ import annotations
@@ -76,15 +78,25 @@ def init(
     config: dict[str, Any] | None = None,
     *,
     directory: str | os.PathLike | None = None,
-    remote: str | None = None,
+    remote: str | bool | None = None,
     api_key: str | None = None,
 ) -> "Run":
-    """Start a new run. Returns a :class:`Run`; also usable as a context manager."""
-    remote = remote or os.environ.get("PANDM_REMOTE")
-    if remote:
+    """Start a new run. Returns a :class:`Run`; also usable as a context manager.
+
+    `remote=` / `PANDM_REMOTE` -> remote-only; saved `pandm login` credentials
+    -> dual-write (local + sync); `remote=False` / `PANDM_NO_SYNC` -> local-only.
+    """
+    from .credentials import resolve_remote
+
+    resolved = resolve_remote(remote, api_key)
+    if resolved.mode == "remote_only":
         from .client import RemoteBackend
 
-        backend: Any = RemoteBackend(remote, api_key or os.environ.get("PANDM_API_KEY"))
+        backend: Any = RemoteBackend(resolved.url, resolved.api_key)  # type: ignore[arg-type]
+    elif resolved.mode == "dual":
+        from .sync import DualBackend
+
+        backend = DualBackend(resolve_dir(directory), resolved.url, resolved.api_key)  # type: ignore[arg-type]
     else:
         backend = LocalStore(resolve_dir(directory))
     run = Run(backend, project=project, name=name, config=config or {})

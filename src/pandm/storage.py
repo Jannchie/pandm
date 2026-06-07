@@ -11,6 +11,7 @@ import json
 import math
 import os
 import re
+import secrets
 import shutil
 import sqlite3
 import threading
@@ -28,7 +29,8 @@ CREATE TABLE IF NOT EXISTS runs (
     config      TEXT NOT NULL DEFAULT '{}',
     created_at  REAL NOT NULL,
     updated_at  REAL NOT NULL,
-    finished_at REAL
+    finished_at REAL,
+    user_id     INTEGER
 );
 CREATE TABLE IF NOT EXISTS metrics (
     run_id TEXT NOT NULL,
@@ -48,6 +50,32 @@ CREATE TABLE IF NOT EXISTS media (
     ts       REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_media_run_key_step ON media (run_id, key, step);
+CREATE TABLE IF NOT EXISTS users (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    github_id  INTEGER NOT NULL UNIQUE,
+    login      TEXT NOT NULL,
+    name       TEXT,
+    avatar_url TEXT,
+    api_key    TEXT NOT NULL UNIQUE,
+    created_at REAL NOT NULL
+);
+-- client side: per-run upload cursor + advisory lease; a row here marks the
+-- run as cloud-tracked (pandm sync ignores runs without one unless told to)
+CREATE TABLE IF NOT EXISTS sync_state (
+    run_id        TEXT PRIMARY KEY,
+    metrics_rowid INTEGER NOT NULL DEFAULT 0,
+    media_id      INTEGER NOT NULL DEFAULT 0,
+    status_synced INTEGER NOT NULL DEFAULT 0,
+    lease_owner   TEXT,
+    lease_expires REAL
+);
+-- server side: highest client-local seq durably ingested per run, so
+-- at-least-once re-pushes from the sync cursor never duplicate rows
+CREATE TABLE IF NOT EXISTS sync_progress (
+    run_id             TEXT PRIMARY KEY,
+    last_metrics_rowid INTEGER NOT NULL DEFAULT 0,
+    last_media_id      INTEGER NOT NULL DEFAULT 0
+);
 """
 
 _SLUG_RE = re.compile(r"[^a-zA-Z0-9._-]+")
@@ -85,6 +113,7 @@ def _run_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "finished_at": row["finished_at"],
+        "user_id": row["user_id"],
     }
     if run["status"] == "running" and time.time() - run["updated_at"] > STALE_AFTER:
         run["status"] = "crashed"
@@ -103,7 +132,15 @@ class LocalStore:
             self._db.execute("PRAGMA journal_mode=WAL")
             self._db.execute("PRAGMA busy_timeout=5000")
             self._db.executescript(_SCHEMA)
+            self._migrate()
             self._db.commit()
+
+    def _migrate(self) -> None:
+        """Idempotent migrations for databases created by older versions."""
+        cols = {r["name"] for r in self._db.execute("PRAGMA table_info(runs)").fetchall()}
+        if "user_id" not in cols:
+            self._db.execute("ALTER TABLE runs ADD COLUMN user_id INTEGER")
+        self._db.execute("CREATE INDEX IF NOT EXISTS idx_runs_user ON runs (user_id)")
 
     def close(self) -> None:
         with self._lock:
@@ -118,13 +155,14 @@ class LocalStore:
         name: str,
         config: dict[str, Any],
         created_at: float | None = None,
+        user_id: int | None = None,
     ) -> None:
         now = created_at if created_at is not None else time.time()
         with self._lock:
             self._db.execute(
-                "INSERT OR IGNORE INTO runs (id, project, name, status, config, created_at, updated_at)"
-                " VALUES (?, ?, ?, 'running', ?, ?, ?)",
-                (run_id, project, name, json.dumps(config, default=str), now, now),
+                "INSERT OR IGNORE INTO runs (id, project, name, status, config, created_at, updated_at, user_id)"
+                " VALUES (?, ?, ?, 'running', ?, ?, ?, ?)",
+                (run_id, project, name, json.dumps(config, default=str), now, now, user_id),
             )
             self._db.commit()
 
@@ -194,36 +232,52 @@ class LocalStore:
 
     # -------------------------------------------------------------- reads
 
-    def list_projects(self) -> list[dict[str, Any]]:
+    def list_projects(self, user_id: int | None = None) -> list[dict[str, Any]]:
+        where = "WHERE user_id = ?" if user_id is not None else ""
+        params = (user_id,) if user_id is not None else ()
         with self._lock:
             rows = self._db.execute(
-                "SELECT project, COUNT(*) AS runs, MAX(updated_at) AS last_active"
-                " FROM runs GROUP BY project ORDER BY last_active DESC"
+                f"SELECT project, COUNT(*) AS runs, MAX(updated_at) AS last_active"
+                f" FROM runs {where} GROUP BY project ORDER BY last_active DESC",
+                params,
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def list_runs(self, project: str | None = None) -> list[dict[str, Any]]:
+    def list_runs(self, project: str | None = None, user_id: int | None = None) -> list[dict[str, Any]]:
+        clauses, params = [], []
+        if project:
+            clauses.append("project = ?")
+            params.append(project)
+        if user_id is not None:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._lock:
-            if project:
-                rows = self._db.execute(
-                    "SELECT * FROM runs WHERE project = ? ORDER BY created_at DESC", (project,)
-                ).fetchall()
-            else:
-                rows = self._db.execute("SELECT * FROM runs ORDER BY created_at DESC").fetchall()
+            rows = self._db.execute(
+                f"SELECT * FROM runs {where} ORDER BY created_at DESC", params
+            ).fetchall()
         runs = [_run_row_to_dict(r) for r in rows]
         summaries = self._summaries([r["id"] for r in runs])
         for run in runs:
             run["summary"] = summaries.get(run["id"], {})
         return runs
 
-    def get_run(self, run_id: str) -> dict[str, Any] | None:
+    def get_run(self, run_id: str, user_id: int | None = None) -> dict[str, Any] | None:
         with self._lock:
             row = self._db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
         if row is None:
             return None
         run = _run_row_to_dict(row)
+        if user_id is not None and run["user_id"] != user_id:
+            return None  # not yours — indistinguishable from absent
         run["summary"] = self._summaries([run_id]).get(run_id, {})
         return run
+
+    def run_owner(self, run_id: str) -> int | None:
+        """user_id of the run's owner, or None (unowned local run / missing run)."""
+        with self._lock:
+            row = self._db.execute("SELECT user_id FROM runs WHERE id = ?", (run_id,)).fetchone()
+        return row["user_id"] if row else None
 
     def _summaries(self, run_ids: list[str]) -> dict[str, dict[str, float]]:
         """Latest logged value per (run, key)."""
@@ -300,3 +354,170 @@ class LocalStore:
         if not str(path).startswith(str(self.media_root.resolve())):
             return None  # path traversal guard
         return path if path.is_file() else None
+
+    # -------------------------------------------------------------- users
+
+    def upsert_user(self, github_id: int, login: str, name: str | None, avatar_url: str | None) -> dict[str, Any]:
+        """Create-or-refresh a user from a GitHub profile; api_key is minted once on create."""
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO users (github_id, login, name, avatar_url, api_key, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(github_id) DO UPDATE SET"
+                "   login = excluded.login, name = excluded.name, avatar_url = excluded.avatar_url",
+                (github_id, login, name, avatar_url, secrets.token_urlsafe(32), time.time()),
+            )
+            self._db.commit()
+            row = self._db.execute("SELECT * FROM users WHERE github_id = ?", (github_id,)).fetchone()
+        return dict(row)
+
+    def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return dict(row) if row else None
+
+    def get_user_by_api_key(self, api_key: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._db.execute("SELECT * FROM users WHERE api_key = ?", (api_key,)).fetchone()
+        return dict(row) if row else None
+
+    def rotate_api_key(self, user_id: int) -> str:
+        key = secrets.token_urlsafe(32)
+        with self._lock:
+            self._db.execute("UPDATE users SET api_key = ? WHERE id = ?", (key, user_id))
+            self._db.commit()
+        return key
+
+    # ----------------------------------------- ingest watermark (server side)
+    # Synced batches carry the client-local rowid per row ("seq"); rows at or
+    # below the stored watermark are replays of an already-committed push.
+
+    def log_metrics_seq(self, run_id: str, rows: list[tuple[str, int, float, float, int]]) -> int:
+        """rows: [(key, step, value, ts, seq), ...] — returns how many were fresh."""
+        if not rows:
+            return 0
+        with self._lock:
+            row = self._db.execute(
+                "SELECT last_metrics_rowid FROM sync_progress WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            last = row["last_metrics_rowid"] if row else 0
+            fresh = [r for r in rows if r[4] > last]
+            if fresh:
+                self._db.executemany(
+                    "INSERT INTO metrics (run_id, key, step, value, ts) VALUES (?, ?, ?, ?, ?)",
+                    [(run_id, k, s, v, t) for k, s, v, t, _ in fresh],
+                )
+                self._db.execute(
+                    "INSERT INTO sync_progress (run_id, last_metrics_rowid) VALUES (?, ?)"
+                    " ON CONFLICT(run_id) DO UPDATE SET last_metrics_rowid = excluded.last_metrics_rowid",
+                    (run_id, max(r[4] for r in fresh)),
+                )
+                self._db.execute(
+                    "UPDATE runs SET updated_at = ? WHERE id = ?",
+                    (max(r[3] for r in fresh), run_id),
+                )
+            self._db.commit()
+        return len(fresh)
+
+    def claim_media_seq(self, run_id: str, media_id: int) -> bool:
+        """True if this client-local media id is fresh (advances the watermark)."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT last_media_id FROM sync_progress WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            last = row["last_media_id"] if row else 0
+            if media_id <= last:
+                return False
+            self._db.execute(
+                "INSERT INTO sync_progress (run_id, last_media_id) VALUES (?, ?)"
+                " ON CONFLICT(run_id) DO UPDATE SET last_media_id = excluded.last_media_id",
+                (run_id, media_id),
+            )
+            self._db.commit()
+        return True
+
+    # ------------------------------------------- sync cursor (client side)
+
+    def ensure_sync_state(self, run_id: str) -> None:
+        """Mark a run as cloud-tracked (no-op if already tracked)."""
+        with self._lock:
+            self._db.execute("INSERT OR IGNORE INTO sync_state (run_id) VALUES (?)", (run_id,))
+            self._db.commit()
+
+    def get_sync_state(self, run_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._db.execute("SELECT * FROM sync_state WHERE run_id = ?", (run_id,)).fetchone()
+        return dict(row) if row else None
+
+    def advance_sync_cursor(
+        self, run_id: str, metrics_rowid: int | None = None, media_id: int | None = None, status_synced: bool | None = None
+    ) -> None:
+        sets, params = [], []
+        if metrics_rowid is not None:
+            sets.append("metrics_rowid = ?")
+            params.append(metrics_rowid)
+        if media_id is not None:
+            sets.append("media_id = ?")
+            params.append(media_id)
+        if status_synced is not None:
+            sets.append("status_synced = ?")
+            params.append(int(status_synced))
+        if not sets:
+            return
+        with self._lock:
+            self._db.execute(f"UPDATE sync_state SET {', '.join(sets)} WHERE run_id = ?", (*params, run_id))
+            self._db.commit()
+
+    def claim_sync_lease(self, run_id: str, owner: str, ttl: float = 60.0) -> bool:
+        """Advisory per-run lock so a live uploader and `pandm sync` don't race."""
+        now = time.time()
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE sync_state SET lease_owner = ?, lease_expires = ?"
+                " WHERE run_id = ? AND (lease_owner IS NULL OR lease_owner = ? OR lease_expires < ?)",
+                (owner, now + ttl, run_id, owner, now),
+            )
+            self._db.commit()
+        return cur.rowcount == 1
+
+    def release_sync_lease(self, run_id: str, owner: str) -> None:
+        with self._lock:
+            self._db.execute(
+                "UPDATE sync_state SET lease_owner = NULL, lease_expires = NULL"
+                " WHERE run_id = ? AND lease_owner = ?",
+                (run_id, owner),
+            )
+            self._db.commit()
+
+    def unsynced_metrics(self, run_id: str, after_rowid: int, limit: int = 1000) -> list[dict[str, Any]]:
+        """Committed metric rows past the cursor, oldest first, with their local rowid as seq."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT rowid AS seq, key, step, value, ts FROM metrics"
+                " WHERE run_id = ? AND rowid > ? ORDER BY rowid LIMIT ?",
+                (run_id, after_rowid, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def unsynced_media(self, run_id: str, after_id: int, limit: int = 100) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, key, step, filename, caption, ts FROM media"
+                " WHERE run_id = ? AND id > ? ORDER BY id LIMIT ?",
+                (run_id, after_id, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def runs_needing_sync(self) -> list[str]:
+        """Cloud-tracked runs with unsynced rows, media, or final status."""
+        with self._lock:
+            rows = self._db.execute(
+                """
+                SELECT s.run_id FROM sync_state s JOIN runs r ON r.id = s.run_id
+                WHERE s.metrics_rowid < COALESCE((SELECT MAX(rowid) FROM metrics m WHERE m.run_id = s.run_id), 0)
+                   OR s.media_id < COALESCE((SELECT MAX(id) FROM media md WHERE md.run_id = s.run_id), 0)
+                   OR (r.status != 'running' AND s.status_synced = 0)
+                ORDER BY r.created_at
+                """
+            ).fetchall()
+        return [r["run_id"] for r in rows]

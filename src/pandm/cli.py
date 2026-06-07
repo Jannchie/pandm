@@ -66,13 +66,17 @@ def server(
         None, "--api-key", envvar="PANDM_API_KEY", help="Require x-api-key on write endpoints."
     ),
 ) -> None:
-    """Start a pandm server for cloud deployment (SDKs report via PANDM_REMOTE)."""
+    """Start a pandm server for cloud deployment (SDKs report via `pandm login` or PANDM_REMOTE)."""
+    import os as _os
+
     import uvicorn
 
     from .server import create_app
 
     data_dir = resolve_dir(directory)
-    _banner(f"http://{host}:{port}", data_dir, "server mode" + (" · api-key on" if api_key else ""))
+    multi_user = bool(_os.environ.get("GITHUB_CLIENT_ID") and _os.environ.get("GITHUB_CLIENT_SECRET"))
+    mode = "multi-user (GitHub OAuth)" if multi_user else "server mode" + (" · api-key on" if api_key else "")
+    _banner(f"http://{host}:{port}", data_dir, mode)
     uvicorn.run(create_app(data_dir, api_key=api_key), host=host, port=port, log_level="info")
 
 
@@ -127,6 +131,100 @@ def delete(
         raise typer.Exit(0)
     store.delete_run(run_id)
     console.print(f"[dim]deleted {run_id}[/dim]")
+
+
+@app.command()
+def login(
+    server: str = typer.Argument(..., help="pandm server URL, e.g. https://pandm.example.com"),
+    key: Optional[str] = typer.Option(None, "--key", help="Paste an API key directly (skips the browser)."),
+) -> None:
+    """Sign in to a pandm server (browser approval, like `gh auth login`)."""
+    import time as _time
+
+    import httpx
+
+    from . import credentials
+
+    server = server.rstrip("/")
+
+    if key is None:
+        try:
+            start = httpx.post(f"{server}/api/cli/start", timeout=10)
+            start.raise_for_status()
+        except httpx.HTTPError as exc:
+            console.print(f"[red]cannot reach {server}: {exc}[/red]")
+            console.print("[dim]is it running in multi-user mode (GITHUB_CLIENT_ID/SECRET set)?[/dim]")
+            raise typer.Exit(1)
+        info = start.json()
+        approve_url = f"{server}/?cli={info['user_code']}"
+        console.print(f"\nOpen [bold cyan]{approve_url}[/bold cyan]")
+        console.print(f"and approve code [bold]{info['user_code']}[/bold] after signing in.\n")
+        webbrowser.open(approve_url)
+        with console.status("waiting for approval…"):
+            deadline = _time.monotonic() + 600
+            while _time.monotonic() < deadline:
+                _time.sleep(2)
+                poll = httpx.post(f"{server}/api/cli/poll", json={"device_token": info["device_token"]}, timeout=10)
+                if poll.status_code == 404:
+                    console.print("[red]login request expired — run pandm login again[/red]")
+                    raise typer.Exit(1)
+                poll.raise_for_status()
+                if poll.json()["status"] == "approved":
+                    key = poll.json()["api_key"]
+                    break
+            else:
+                console.print("[red]timed out waiting for approval[/red]")
+                raise typer.Exit(1)
+
+    if key is None:
+        console.print("[red]no API key obtained[/red]")
+        raise typer.Exit(1)
+    me = httpx.get(f"{server}/api/me", headers={"x-api-key": key}, timeout=10)
+    if me.status_code != 200:
+        console.print("[red]server rejected the API key[/red]")
+        raise typer.Exit(1)
+    profile = me.json()
+    path = credentials.save(server, key, profile.get("login"))  # type: ignore[arg-type]
+    console.print(f"[green]logged in as [bold]{profile.get('login')}[/bold][/green] [dim]({path})[/dim]")
+    console.print("[dim]pandm.init() now syncs runs to this server; PANDM_NO_SYNC=1 opts out per-run[/dim]")
+
+
+@app.command()
+def logout() -> None:
+    """Forget saved credentials (runs stay local-first)."""
+    from . import credentials
+
+    console.print("[dim]logged out[/dim]" if credentials.clear() else "[dim]not logged in[/dim]")
+
+
+@app.command()
+def sync(
+    run_ids: Optional[list[str]] = typer.Argument(None, help="Specific runs to sync (default: all cloud-tracked runs with pending data)."),
+    directory: Optional[Path] = DirOption,
+    all_runs: bool = typer.Option(False, "--all", help="Also sync local-only runs that were never cloud-tracked."),
+) -> None:
+    """Push unsynced local runs to the signed-in server (like `wandb sync`)."""
+    from . import credentials
+    from .sync import sync_all
+
+    creds = credentials.load()
+    if creds is None:
+        console.print("[red]not logged in — run pandm login <server-url> first[/red]")
+        raise typer.Exit(1)
+
+    report = sync_all(
+        resolve_dir(directory),
+        creds["server"],
+        creds["api_key"],
+        run_ids=list(run_ids) if run_ids else None,
+        track_all=all_runs,
+        progress=lambda rid, outcome: console.print(f"  [dim]{rid}[/dim] {outcome}"),
+    )
+    if not report:
+        console.print("[dim]nothing to sync[/dim]")
+    else:
+        synced = sum(1 for _, outcome in report if outcome == "synced")
+        console.print(f"[green]{synced}/{len(report)} runs synced[/green] -> {creds['server']}")
 
 
 @app.command()

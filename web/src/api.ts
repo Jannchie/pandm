@@ -37,10 +37,46 @@ export interface MediaItem {
   url: string
 }
 
+export interface Me {
+  mode: 'local' | 'user'
+  login?: string
+  name?: string | null
+  avatar_url?: string | null
+  api_key?: string
+}
+
+export class HttpError extends Error {
+  constructor(
+    public status: number,
+    url: string,
+  ) {
+    super(`${status} ${url}`)
+  }
+}
+
 async function get<T>(url: string): Promise<T> {
   const resp = await fetch(url)
-  if (!resp.ok) throw new Error(`${resp.status} ${url}`)
+  if (!resp.ok) throw new HttpError(resp.status, url)
   return resp.json()
+}
+
+export const fetchMe = () => get<Me>('/api/me')
+
+export const logout = () => fetch('/api/auth/logout', { method: 'POST' })
+
+export async function rotateApiKey(): Promise<string> {
+  const resp = await fetch('/api/me/key/rotate', { method: 'POST' })
+  if (!resp.ok) throw new HttpError(resp.status, '/api/me/key/rotate')
+  return (await resp.json()).api_key
+}
+
+export async function approveCli(code: string): Promise<boolean> {
+  const resp = await fetch('/api/cli/approve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  })
+  return resp.ok
 }
 
 export const fetchProjects = () => get<Project[]>('/api/projects')

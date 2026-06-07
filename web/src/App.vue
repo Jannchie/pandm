@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
+import CliApprove from './components/CliApprove.vue'
 import Lightbox from './components/Lightbox.vue'
+import LoginGate from './components/LoginGate.vue'
 import MediaPanel from './components/MediaPanel.vue'
 import MetricsPanel from './components/MetricsPanel.vue'
 import Sidebar from './components/Sidebar.vue'
 import TablePanel from './components/TablePanel.vue'
 import TopBar from './components/TopBar.vue'
-import { selectedRuns, startPolling, state } from './store'
+import { bootstrap, selectedRuns, state } from './store'
 
 const TABS = [
   { id: 'metrics', label: 'Metrics' },
@@ -14,11 +16,13 @@ const TABS = [
   { id: 'table', label: 'Table' },
 ] as const
 
-onMounted(() => startPolling())
+onMounted(() => bootstrap())
 </script>
 
 <template>
-  <div class="h-full flex flex-col bg-bg">
+  <div v-if="state.auth.mode === 'loading'" class="h-full bg-bg" />
+  <LoginGate v-else-if="state.auth.mode === 'anon'" />
+  <div v-else class="h-full flex flex-col bg-bg">
     <TopBar />
     <div class="flex flex-1 min-h-0">
       <Sidebar />
@@ -103,5 +107,6 @@ onMounted(() => startPolling())
       </main>
     </div>
     <Lightbox />
+    <CliApprove v-if="state.cliCode && state.auth.mode === 'user'" />
   </div>
 </template>

@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { rotateApiKey } from '../api'
 import { runColor } from '../colors'
-import { anyRunning, selectAll, selectNone, setProject, state, toggleRun } from '../store'
+import { anyRunning, selectAll, selectNone, setProject, signOut, state, toggleRun } from '../store'
 
 const runsOpen = ref(false)
+const userOpen = ref(false)
+const copied = ref(false)
 
 const runsLabel = computed(() => {
   if (state.selected.length === 1) {
@@ -12,6 +15,18 @@ const runsLabel = computed(() => {
   }
   return `${state.selected.length} of ${state.runs.length} runs`
 })
+
+async function copyKey() {
+  if (!state.auth.user) return
+  await navigator.clipboard.writeText(state.auth.user.api_key)
+  copied.value = true
+  setTimeout(() => (copied.value = false), 1500)
+}
+
+async function rotateKey() {
+  if (!state.auth.user) return
+  state.auth.user.api_key = await rotateApiKey()
+}
 </script>
 
 <template>
@@ -121,6 +136,37 @@ const runsLabel = computed(() => {
       <template v-else>
         <span>{{ state.runs.length }} runs</span>
       </template>
+    </div>
+
+    <!-- account -->
+    <div v-if="state.auth.mode === 'user' && state.auth.user" class="relative ml-3">
+      <button class="flex items-center cursor-pointer" @click="userOpen = !userOpen">
+        <img
+          v-if="state.auth.user.avatar_url"
+          :src="state.auth.user.avatar_url"
+          class="w-6 h-6 rounded-full border border-border"
+        />
+        <span v-else class="w-6 h-6 rounded-full bg-elev text-[11px] flex items-center justify-center text-fg-mut">
+          {{ state.auth.user.login.slice(0, 1).toUpperCase() }}
+        </span>
+      </button>
+
+      <div v-if="userOpen" class="fixed inset-0 z-40" @click="userOpen = false" />
+      <div v-if="userOpen" class="absolute right-0 top-full mt-1 w-56 bg-panel border border-border shadow-2xl z-50 py-1">
+        <div class="px-3 py-2 border-b border-border">
+          <div class="text-[12.5px] text-fg">{{ state.auth.user.name || state.auth.user.login }}</div>
+          <div class="text-[11px] text-fg-dim">@{{ state.auth.user.login }}</div>
+        </div>
+        <button class="w-full text-left px-3 py-1.5 text-[12.5px] text-fg-mut hover:bg-elev/40 hover:text-fg transition-colors cursor-pointer" @click="copyKey">
+          {{ copied ? 'Copied!' : 'Copy API key' }}
+        </button>
+        <button class="w-full text-left px-3 py-1.5 text-[12.5px] text-fg-mut hover:bg-elev/40 hover:text-fg transition-colors cursor-pointer" @click="rotateKey">
+          Rotate API key
+        </button>
+        <button class="w-full text-left px-3 py-1.5 text-[12.5px] text-fg-mut hover:bg-elev/40 hover:text-err transition-colors cursor-pointer" @click="signOut">
+          Sign out
+        </button>
+      </div>
     </div>
   </header>
 </template>
