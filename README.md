@@ -69,9 +69,9 @@ For images, unwrap the raw run: `accelerator.get_tracker("pandm", unwrap=True).l
 Training scripts never change — sign in once per machine and `pandm.init()` dual-writes: local stays the source of truth, a background thread syncs to the server, and anything logged offline is backfilled on reconnect. Delivery is exact-once (re-pushes are deduped server-side).
 
 ```sh
-pandm login https://pandm.example.com   # browser approval, like `gh auth login`
-python train.py                          # local + cloud
-pandm sync                               # backfill runs whose process already exited
+pandm login        # hosted cloud (pandm.jannchie.com); pass a URL for self-hosted
+python train.py    # local + cloud
+pandm sync         # backfill runs whose process already exited
 ```
 
 Each user signs in with GitHub and sees only their own runs. Two interchangeable server implementations speak the same protocol — the full walkthrough (OAuth App, custom domain, backups, troubleshooting) is in **[docs/deploy.md](docs/deploy.md)**:

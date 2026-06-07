@@ -13,6 +13,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from . import __version__
+from .credentials import DEFAULT_SERVER
 from .storage import LocalStore, resolve_dir
 
 app = typer.Typer(
@@ -135,7 +136,7 @@ def delete(
 
 @app.command()
 def login(
-    server: str = typer.Argument(..., help="pandm server URL, e.g. https://pandm.example.com"),
+    server: str = typer.Argument(DEFAULT_SERVER, help="pandm server URL (default: the hosted pandm cloud)."),
     key: Optional[str] = typer.Option(None, "--key", help="Paste an API key directly (skips the browser)."),
 ) -> None:
     """Sign in to a pandm server (browser approval, like `gh auth login`)."""
@@ -209,7 +210,7 @@ def sync(
 
     creds = credentials.load()
     if creds is None:
-        console.print("[red]not logged in — run pandm login <server-url> first[/red]")
+        console.print("[red]not logged in — run pandm login first[/red]")
         raise typer.Exit(1)
 
     report = sync_all(

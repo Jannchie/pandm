@@ -15,6 +15,8 @@ from typing import Any, Literal, NamedTuple
 
 Mode = Literal["local", "remote_only", "dual"]
 
+DEFAULT_SERVER = "https://pandm.jannchie.com"  # the hosted pandm cloud (`pandm login` with no URL)
+
 
 def cred_path() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
