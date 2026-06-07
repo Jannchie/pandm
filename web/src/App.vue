@@ -28,57 +28,66 @@ onMounted(() => bootstrap())
       <Sidebar />
       <main class="flex-1 min-w-0 flex flex-col">
         <!-- tab bar + per-tab controls -->
-        <div class="flex items-center px-2 h-9 border-b border-border shrink-0">
-          <button
-            v-for="t in TABS"
-            :key="t.id"
-            class="relative h-full px-2.5 text-[12.5px] transition-colors cursor-pointer"
-            :class="state.tab === t.id ? 'text-fg' : 'text-fg-dim hover:text-fg-mut'"
-            @click="state.tab = t.id"
-          >
-            {{ t.label }}
-            <span v-if="state.tab === t.id" class="absolute inset-x-2 bottom-0 h-px bg-accent-hi" />
-          </button>
-
-          <div class="flex-1" />
-
-          <div v-if="state.tab !== 'table'" class="flex items-center gap-2 mr-3" title="columns">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" class="text-fg-dim">
-              <rect x="3.5" y="5" width="17" height="14" stroke="currentColor" stroke-width="2" />
-              <path d="M9.5 5v14M14.5 5v14" stroke="currentColor" stroke-width="2" />
-            </svg>
-            <input v-model.number="state.columns" type="range" min="0" max="6" step="1" class="w-16" />
-            <span class="text-[11px] text-fg-dim w-7 tabular-nums">{{ state.columns || 'auto' }}</span>
+        <div class="flex flex-col md:flex-row md:items-center border-b border-border shrink-0">
+          <!-- tabs: own row on mobile -->
+          <div class="flex items-center px-2 h-9 shrink-0 border-b border-border md:border-b-0">
+            <button
+              v-for="t in TABS"
+              :key="t.id"
+              class="relative h-full px-2.5 text-[12.5px] transition-colors cursor-pointer shrink-0"
+              :class="state.tab === t.id ? 'text-fg' : 'text-fg-dim hover:text-fg-mut'"
+              @click="state.tab = t.id"
+            >
+              {{ t.label }}
+              <span v-if="state.tab === t.id" class="absolute inset-x-2 bottom-0 h-px bg-accent-hi" />
+            </button>
           </div>
 
-          <template v-if="state.tab === 'metrics'">
-            <div class="flex items-center gap-2 mr-3" title="smoothing">
+          <!-- controls: own row on mobile, right-aligned on desktop -->
+          <div
+            class="items-center px-2 h-9 md:flex md:flex-1 md:min-w-0 overflow-x-auto"
+            :class="state.tab === 'metrics' ? 'flex' : 'hidden'"
+          >
+            <div class="flex-1 min-w-2" />
+
+            <div v-if="state.tab !== 'table'" class="hidden md:flex items-center gap-2 mr-3 shrink-0" title="columns">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" class="text-fg-dim">
-                <path
-                  d="M3 17C7 17 8 7 12 7s5 10 9 10"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                />
+                <rect x="3.5" y="5" width="17" height="14" stroke="currentColor" stroke-width="2" />
+                <path d="M9.5 5v14M14.5 5v14" stroke="currentColor" stroke-width="2" />
               </svg>
-              <input v-model.number="state.smoothing" type="range" min="0" max="0.99" step="0.01" class="w-24" />
-              <span class="text-[11px] text-fg-dim w-7 tabular-nums">{{ state.smoothing.toFixed(2) }}</span>
+              <input v-model.number="state.columns" type="range" min="0" max="6" step="1" class="w-16" />
+              <span class="text-[11px] text-fg-dim w-7 tabular-nums">{{ state.columns || 'auto' }}</span>
             </div>
-            <div class="flex items-center bg-elev rounded-lg p-0.5 mr-2">
-              <button
-                v-for="x in ['step', 'time'] as const"
-                :key="x"
-                class="px-2 py-0.5 rounded-md text-[11.5px] transition-colors capitalize"
-                :class="state.xAxis === x ? 'bg-panel text-fg shadow-sm' : 'text-fg-dim hover:text-fg-mut'"
-                @click="state.xAxis = x"
-              >
-                {{ x }}
+
+            <template v-if="state.tab === 'metrics'">
+              <div class="flex items-center gap-2 mr-3 shrink-0" title="smoothing">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" class="text-fg-dim">
+                  <path
+                    d="M3 17C7 17 8 7 12 7s5 10 9 10"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <input v-model.number="state.smoothing" type="range" min="0" max="0.99" step="0.01" class="w-24" />
+                <span class="text-[11px] text-fg-dim w-7 tabular-nums">{{ state.smoothing.toFixed(2) }}</span>
+              </div>
+              <div class="flex items-center bg-elev rounded-lg p-0.5 mr-2 shrink-0">
+                <button
+                  v-for="x in ['step', 'time'] as const"
+                  :key="x"
+                  class="px-2 py-0.5 rounded-md text-[11.5px] transition-colors capitalize"
+                  :class="state.xAxis === x ? 'bg-panel text-fg shadow-sm' : 'text-fg-dim hover:text-fg-mut'"
+                  @click="state.xAxis = x"
+                >
+                  {{ x }}
+                </button>
+              </div>
+              <button class="btn font-mono text-[11.5px] shrink-0" :class="{ 'btn-on !text-accent-hi': state.logScale }" @click="state.logScale = !state.logScale">
+                log
               </button>
-            </div>
-            <button class="btn font-mono text-[11.5px]" :class="{ 'btn-on !text-accent-hi': state.logScale }" @click="state.logScale = !state.logScale">
-              log
-            </button>
-          </template>
+            </template>
+          </div>
         </div>
 
         <!-- panel -->

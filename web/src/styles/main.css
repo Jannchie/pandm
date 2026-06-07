@@ -93,3 +93,11 @@ input[type='range']::-moz-range-thumb {
 .fade-leave-to {
   opacity: 0;
 }
+
+/* the column slider is hidden on mobile — force a single column there so the
+   inline grid-template-columns (340px/220px tracks) can't spill or split */
+@media (max-width: 767px) {
+  .mobile-1col {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}

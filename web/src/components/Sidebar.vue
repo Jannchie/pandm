@@ -10,7 +10,16 @@ function confirmDelete(run: Run) {
 </script>
 
 <template>
-  <aside class="w-70 shrink-0 border-r border-border flex flex-col min-h-0">
+  <!-- backdrop: only on mobile while the drawer is open -->
+  <div
+    v-if="state.sidebarOpen"
+    class="fixed inset-0 z-40 bg-black/50 md:hidden"
+    @click="state.sidebarOpen = false"
+  />
+  <aside
+    class="fixed top-12 bottom-0 left-0 z-50 w-70 max-w-[82vw] bg-bg border-r border-border flex flex-col min-h-0 transition-transform duration-200 will-change-transform md:static md:z-auto md:max-w-none md:shrink-0 md:translate-x-0!"
+    :class="state.sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
+  >
     <!-- search (h-9 matches the main tab bar so the border lines align) -->
     <div class="relative h-9 shrink-0 border-b border-border">
       <svg

@@ -18,7 +18,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <Transition name="fade">
       <div
         v-if="state.lightbox"
-        class="fixed inset-0 z-60 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-8 cursor-zoom-out"
+        class="fixed inset-0 z-60 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-4 sm:p-8 cursor-zoom-out"
         @click="state.lightbox = null"
       >
         <img :src="state.lightbox.url" class="max-w-full max-h-[82vh] rounded-lg shadow-2xl" />

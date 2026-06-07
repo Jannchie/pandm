@@ -15,8 +15,8 @@ async function approve() {
 
 <template>
   <Teleport to="body">
-    <div class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center">
-      <div class="bg-panel border border-border p-6 w-90 flex flex-col gap-4 shadow-2xl">
+    <div class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="bg-panel border border-border p-6 w-90 max-w-full flex flex-col gap-4 shadow-2xl">
         <div class="text-[14px] font-medium">Approve CLI sign-in?</div>
         <p class="text-[12.5px] text-fg-mut leading-relaxed">
           A terminal running <span class="font-mono text-fg">pandm login</span> is asking for access with code

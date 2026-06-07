@@ -16,6 +16,7 @@ export const state = reactive({
   selected: [] as string[],
   touched: false, // user has manually changed the selection
   search: '',
+  sidebarOpen: false, // mobile drawer; ignored on md+ where the sidebar is static
   tab: 'metrics' as 'metrics' | 'media' | 'table',
   columns: 0, // grid columns for metrics/media, 0 = auto
   smoothing: 0,

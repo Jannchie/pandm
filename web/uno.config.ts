@@ -10,8 +10,8 @@ export default defineConfig({
       border: '#1f1f26',
       fg: {
         DEFAULT: '#e8e8ec',
-        mut: '#8f8f9a',
-        dim: '#5b5b66',
+        mut: '#9a9aa6',
+        dim: '#6c6c78',
       },
       accent: {
         DEFAULT: '#6e79d6',

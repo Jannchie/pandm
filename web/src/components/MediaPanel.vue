@@ -81,11 +81,11 @@ function open(card: { run: Run; item: MediaItem }) {
     </div>
 
     <div
-      class="grid gap-3"
+      class="grid gap-3 mobile-1col"
       :style="{
         gridTemplateColumns: state.columns
           ? `repeat(${state.columns}, minmax(0, 1fr))`
-          : 'repeat(auto-fit, minmax(220px, 1fr))',
+          : 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))',
       }"
     >
       <figure
@@ -98,10 +98,10 @@ function open(card: { run: Run; item: MediaItem }) {
         <figcaption class="px-2.5 py-2">
           <div class="flex items-center gap-1.5 min-w-0">
             <span class="w-2 h-2 rounded-full shrink-0" :style="{ background: runColor(card.run.id) }" />
-            <span class="text-[11.5px] text-fg-mut truncate font-mono">{{ card.item.key }}</span>
+            <span class="text-[11.5px] text-fg truncate font-mono">{{ card.item.key }}</span>
             <span class="ml-auto text-[10.5px] text-fg-dim tabular-nums shrink-0">{{ fmtStep(card.item.step) }}</span>
           </div>
-          <div class="text-[11px] text-fg-dim truncate mt-0.5">
+          <div class="text-[11px] text-fg-mut truncate mt-0.5">
             {{ card.run.name }}<template v-if="card.item.caption"> · {{ card.item.caption }}</template>
           </div>
         </figcaption>

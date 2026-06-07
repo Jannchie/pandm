@@ -17,16 +17,16 @@ const unionKeys = computed(() => {
 <template>
   <div
     v-if="unionKeys.length"
-    class="grid gap-3 p-4"
+    class="grid gap-3 p-4 mobile-1col"
     :style="{
       gridTemplateColumns: state.columns
         ? `repeat(${state.columns}, minmax(0, 1fr))`
-        : 'repeat(auto-fill, minmax(340px, 1fr))',
+        : 'repeat(auto-fill, minmax(min(340px, 100%), 1fr))',
     }"
   >
     <div v-for="key in unionKeys" :key="key" class="card group p-3 pb-1 min-w-0">
       <div class="flex items-center mb-1">
-        <span class="text-[12.5px] text-fg-mut font-medium truncate font-mono">{{ key }}</span>
+        <span class="text-[12.5px] text-fg font-medium truncate font-mono">{{ key }}</span>
         <div class="flex-1" />
         <button
           class="opacity-0 group-hover:opacity-100 text-fg-dim hover:text-fg transition-all p-1 -m-1 cursor-pointer"
@@ -60,7 +60,7 @@ const unionKeys = computed(() => {
     <Transition name="fade">
       <div
         v-if="state.expandedChart"
-        class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-10"
+        class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 sm:p-10"
         @click.self="state.expandedChart = null"
       >
         <div class="card w-full max-w-5xl p-4 pb-2 shadow-2xl">

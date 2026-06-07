@@ -36,7 +36,18 @@ async function rotateKey() {
 </script>
 
 <template>
-  <header class="h-12 shrink-0 border-b border-border flex items-center px-4 gap-1">
+  <header class="h-12 shrink-0 border-b border-border flex items-center px-2 sm:px-4 gap-1">
+    <!-- mobile drawer toggle -->
+    <button
+      class="md:hidden -ml-0.5 mr-0.5 p-1.5 text-fg-mut hover:text-fg transition-colors cursor-pointer"
+      title="Toggle runs"
+      @click="state.sidebarOpen = !state.sidebarOpen"
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+      </svg>
+    </button>
+
     <!-- logo -->
     <div class="flex items-center gap-2 select-none mr-2">
       <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
@@ -88,8 +99,8 @@ async function rotateKey() {
     </div>
 
     <!-- breadcrumb: runs -->
-    <span class="text-fg-dim/60 text-[13px] select-none">/</span>
-    <div class="relative">
+    <span class="hidden sm:inline text-fg-dim/60 text-[13px] select-none">/</span>
+    <div class="relative hidden sm:block">
       <button
         class="flex items-center gap-1.5 pl-2 pr-1.5 py-1 text-[13px] hover:bg-elev transition-colors cursor-pointer"
         :class="state.selected.length ? 'text-fg' : 'text-fg-dim'"
@@ -147,14 +158,14 @@ async function rotateKey() {
         <span class="text-err">offline</span>
       </template>
       <template v-else-if="!state.live">
-        <span>paused</span>
+        <span class="hidden sm:inline">paused</span>
       </template>
       <template v-else-if="anyRunning">
         <span class="w-1.5 h-1.5 rounded-full bg-ok pulse" />
-        <span>live</span>
+        <span class="hidden sm:inline">live</span>
       </template>
       <template v-else>
-        <span>{{ state.runs.length }} runs</span>
+        <span class="hidden sm:inline">{{ state.runs.length }} runs</span>
       </template>
       <button
         class="relative w-7 h-4 rounded-full transition-colors cursor-pointer ml-1"
