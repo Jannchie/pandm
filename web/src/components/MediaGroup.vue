@@ -76,7 +76,8 @@ function open(card: { run: Run; item: MediaItem }) {
         class="card overflow-hidden cursor-zoom-in hover:border-fg-dim/40 transition-colors"
         @click="open(card)"
       >
-        <img :src="card.item.url" class="w-full h-40 object-contain bg-black/40" loading="lazy" />
+        <!-- aspect-ratio (not fixed height) so images scale with the column width -->
+        <img :src="card.item.url" class="w-full aspect-[4/3] object-contain bg-black/40" loading="lazy" />
         <figcaption class="px-2.5 py-2">
           <div class="flex items-center gap-1.5 min-w-0">
             <span class="w-2 h-2 rounded-full shrink-0" :style="{ background: runColor(card.run.id) }" />

@@ -54,7 +54,8 @@ const unionKeys = computed(() => {
           </svg>
         </button>
       </div>
-      <div class="h-48">
+      <!-- aspect-ratio (not fixed height) so charts scale with the column width -->
+      <div class="aspect-video">
         <MetricChart :metric-key="key" />
       </div>
     </div>
