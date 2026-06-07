@@ -309,8 +309,26 @@ class LocalStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def metric_series(self, run_id: str, key: str, max_points: int = 1500) -> dict[str, list]:
-        """Series for one (run, key), stride-downsampled to ~max_points (always keeps the last point)."""
+    def metric_series(
+        self, run_id: str, key: str, max_points: int = 1500, after_step: int | None = None
+    ) -> dict[str, list]:
+        """Series for one (run, key), stride-downsampled to ~max_points (always keeps the last point).
+
+        `after_step` switches to an incremental tail read (steps strictly above it,
+        no sampling) so live charts can append instead of re-reading the history.
+        """
+        if after_step is not None:
+            with self._lock:
+                rows = self._db.execute(
+                    "SELECT step, value, ts FROM metrics"
+                    " WHERE run_id = ? AND key = ? AND step > ? ORDER BY step, rowid",
+                    (run_id, key, after_step),
+                ).fetchall()
+            return {
+                "steps": [r["step"] for r in rows],
+                "values": [r["value"] for r in rows],
+                "ts": [r["ts"] for r in rows],
+            }
         with self._lock:
             total = self._db.execute(
                 "SELECT COUNT(*) FROM metrics WHERE run_id = ? AND key = ?", (run_id, key)

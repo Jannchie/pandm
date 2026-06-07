@@ -96,7 +96,10 @@ app.get('/api/runs/:id/metrics/*', async (c) => {
   if (guard) return guard
   const key = decodeURIComponent(c.req.path.split('/metrics/')[1] ?? '')
   const maxPoints = Number.parseInt(c.req.query('max_points') ?? '1500')
-  return cachedJson(c, () => db.metricSeries(c.env.DB, runId, key, maxPoints))
+  const afterStep = c.req.query('after_step')
+  return cachedJson(c, () =>
+    db.metricSeries(c.env.DB, runId, key, maxPoints, afterStep !== undefined ? Number(afterStep) : null),
+  )
 })
 
 app.get('/api/runs/:id/media', async (c) => {

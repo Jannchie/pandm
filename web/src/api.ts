@@ -78,8 +78,10 @@ export const fetchProjects = () => get<Project[]>('/api/projects')
 export const fetchRuns = (project?: string) =>
   get<Run[]>(`/api/runs${project ? `?project=${encodeURIComponent(project)}` : ''}`)
 
-export const fetchSeries = (runId: string, key: string) =>
-  get<Series>(`/api/runs/${runId}/metrics/${encodeURIComponent(key)}`)
+export const fetchSeries = (runId: string, key: string, afterStep?: number) =>
+  get<Series>(
+    `/api/runs/${runId}/metrics/${encodeURIComponent(key)}${afterStep !== undefined ? `?after_step=${afterStep}` : ''}`,
+  )
 
 export const fetchMedia = (runId: string) => get<MediaItem[]>(`/api/runs/${runId}/media`)
 

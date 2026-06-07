@@ -271,3 +271,25 @@ describe('summary materialization', () => {
     expect(list[0].summary).toEqual({ loss: 1.0, acc: 0.1 })
   })
 })
+
+describe('incremental series', () => {
+  it('after_step returns only the unsampled tail', async () => {
+    await post('/api/runs', { id: 'inc00001', project: 'inc', name: 'inc' }, keyOf(alice))
+    const rows = Array.from({ length: 20 }, (_, i) => ({ key: 'loss', step: i, value: i * 1.0, ts: i + 1 }))
+    await post('/api/runs/inc00001/metrics', { rows }, keyOf(alice))
+
+    const full = (await (await api('/api/runs/inc00001/metrics/loss', { headers: keyOf(alice) })).json()) as any
+    expect(full.steps).toHaveLength(20)
+
+    const tail = (await (
+      await api('/api/runs/inc00001/metrics/loss?after_step=16', { headers: keyOf(alice) })
+    ).json()) as any
+    expect(tail.steps).toEqual([17, 18, 19])
+    expect(tail.values).toEqual([17, 18, 19])
+
+    const empty = (await (
+      await api('/api/runs/inc00001/metrics/loss?after_step=19', { headers: keyOf(alice) })
+    ).json()) as any
+    expect(empty.steps).toEqual([])
+  })
+})

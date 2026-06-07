@@ -118,10 +118,14 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
 
     @app.get("/api/runs/{run_id}/metrics/{key:path}")
     def run_metric_series(
-        run_id: str, key: str, max_points: int = 1500, user: dict | None = Depends(current_user)
+        run_id: str,
+        key: str,
+        max_points: int = 1500,
+        after_step: int | None = None,
+        user: dict | None = Depends(current_user),
     ) -> dict[str, list]:
         check_owner(run_id, user)
-        return store.metric_series(run_id, key, max_points=max_points)
+        return store.metric_series(run_id, key, max_points=max_points, after_step=after_step)
 
     @app.get("/api/runs/{run_id}/media")
     def run_media(

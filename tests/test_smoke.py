@@ -177,3 +177,18 @@ def test_downsampling(data_dir):
     assert len(series["steps"]) <= 502
     assert series["steps"][0] == 0
     assert series["steps"][-1] == 9999  # last point always kept
+
+
+def test_metric_series_incremental(data_dir):
+    store = LocalStore(data_dir)
+    store.create_run("r1", "p", "n", {})
+    store.log_metrics("r1", [("loss", i, float(i), float(i)) for i in range(20)])
+
+    tail = store.metric_series("r1", "loss", after_step=16)
+    assert tail["steps"] == [17, 18, 19]
+    assert tail["values"] == [17.0, 18.0, 19.0]
+    assert store.metric_series("r1", "loss", after_step=19)["steps"] == []
+
+    client = TestClient(create_app(data_dir))
+    resp = client.get("/api/runs/r1/metrics/loss", params={"after_step": 16}).json()
+    assert resp["steps"] == [17, 18, 19]

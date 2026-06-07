@@ -210,7 +210,31 @@ function cached<T>(map: Map<string, CacheEntry<T>>, run: api.Run, key: string, f
 const seriesCache = new Map<string, CacheEntry<api.Series>>()
 const mediaCache = new Map<string, CacheEntry<api.MediaItem[]>>()
 
-export const getSeries = (run: api.Run, key: string) =>
-  cached(seriesCache, run, `${run.id} ${key}`, () => api.fetchSeries(run.id, key))
+// past this many client-side points, reset to a full (server-sampled) fetch
+const MAX_CLIENT_POINTS = 6000
+
+export function getSeries(run: api.Run, key: string): Promise<api.Series> {
+  const ck = `${run.id} ${key}`
+  const hit = seriesCache.get(ck)
+  if (hit && hit.updated === run.updated_at) return hit.promise
+  const promise = (async () => {
+    // live charts append the tail (an index range read server-side) instead of
+    // re-reading the whole series on every poll. Late out-of-order steps are
+    // missed until the next full fetch — acceptable for a live view.
+    const prev = hit ? await hit.promise.catch(() => null) : null
+    if (prev && prev.steps.length > 0 && prev.steps.length < MAX_CLIENT_POINTS) {
+      const tail = await api.fetchSeries(run.id, key, prev.steps[prev.steps.length - 1])
+      return {
+        steps: [...prev.steps, ...tail.steps],
+        values: [...prev.values, ...tail.values],
+        ts: [...prev.ts, ...tail.ts],
+      }
+    }
+    return api.fetchSeries(run.id, key)
+  })()
+  promise.catch(() => seriesCache.delete(ck)) // don't cache failures
+  seriesCache.set(ck, { updated: run.updated_at, promise })
+  return promise
+}
 
 export const getMedia = (run: api.Run) => cached(mediaCache, run, run.id, () => api.fetchMedia(run.id))

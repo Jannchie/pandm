@@ -286,7 +286,29 @@ export const metricKeys = async (db: D1Database, runId: string) => {
   return results
 }
 
-export async function metricSeries(db: D1Database, runId: string, key: string, maxPoints = 1500) {
+export async function metricSeries(
+  db: D1Database,
+  runId: string,
+  key: string,
+  maxPoints = 1500,
+  afterStep: number | null = null,
+) {
+  if (afterStep !== null) {
+    // incremental tail for live charts: (run_id, key, step) index range scan
+    // reads only the new rows instead of the whole history. No sampling —
+    // the tail between two polls is small; the client resets when it grows.
+    const { results } = await db
+      .prepare(
+        'SELECT step, value, ts FROM metrics WHERE run_id = ?1 AND key = ?2 AND step > ?3 ORDER BY step, rowid',
+      )
+      .bind(runId, key, afterStep)
+      .all<{ step: number; value: number; ts: number }>()
+    return {
+      steps: results.map((r) => r.step),
+      values: results.map((r) => r.value),
+      ts: results.map((r) => r.ts),
+    }
+  }
   // COUNT(*) OVER () folds the row count into the same scan — half the rows read
   const { results } = await db
     .prepare(
