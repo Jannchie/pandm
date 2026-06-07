@@ -22,6 +22,19 @@ const app = new Hono<Ctx>()
 
 const detail = (c: any, status: number, msg: string) => c.json({ detail: msg }, status)
 
+// per-isolate identity cache — resolving the user otherwise costs one D1 row
+// read on every poll request. Only positive lookups are cached (bounded size).
+const AUTH_TTL_MS = 60_000
+const authCache = new Map<string, { user: db.User; exp: number }>()
+
+async function cachedUser(key: string, load: () => Promise<db.User | null>): Promise<db.User | null> {
+  const hit = authCache.get(key)
+  if (hit && hit.exp > Date.now()) return hit.user
+  const user = await load()
+  if (user) authCache.set(key, { user, exp: Date.now() + AUTH_TTL_MS })
+  return user
+}
+
 // every /api route below this middleware requires an identity:
 // x-api-key (SDK / CLI) or the session cookie (dashboard)
 app.use('/api/*', async (c, next) => {
@@ -30,10 +43,10 @@ app.use('/api/*', async (c, next) => {
   const apiKey = c.req.header('x-api-key')
   let user: db.User | null = null
   if (apiKey) {
-    user = await db.userByApiKey(c.env.DB, apiKey)
+    user = await cachedUser(`k:${apiKey}`, () => db.userByApiKey(c.env.DB, apiKey))
   } else {
     const session = await auth.verify(c.env.PANDM_SECRET_KEY, auth.readCookie(c.req.header('Cookie'), auth.SESSION_COOKIE))
-    if (session) user = await db.userById(c.env.DB, session.uid)
+    if (session) user = await cachedUser(`u:${session.uid}`, () => db.userById(c.env.DB, session.uid))
   }
   if (!user) return detail(c, 401, 'sign in required')
   c.set('user', user)
@@ -277,9 +290,11 @@ app.get('/api/me', (c) => {
   })
 })
 
-app.post('/api/me/key/rotate', async (c) =>
-  c.json({ api_key: await db.rotateApiKey(c.env.DB, c.get('user').id) }),
-)
+app.post('/api/me/key/rotate', async (c) => {
+  const key = await db.rotateApiKey(c.env.DB, c.get('user').id)
+  authCache.clear() // the rotated-away key must stop working now, not in 60s
+  return c.json({ api_key: key })
+})
 
 // ------------------------------------------------------------- device flow
 
