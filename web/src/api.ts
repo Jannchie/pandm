@@ -90,3 +90,8 @@ export const fetchSeries = (runId: string, key: string) =>
   get<Series>(`/api/runs/${runId}/metrics/${encodeURIComponent(key)}`)
 
 export const fetchMedia = (runId: string) => get<MediaItem[]>(`/api/runs/${runId}/media`)
+
+export async function deleteRun(runId: string): Promise<void> {
+  const resp = await fetch(`/api/runs/${runId}`, { method: 'DELETE' })
+  if (!resp.ok) throw new HttpError(resp.status, `/api/runs/${runId}`)
+}

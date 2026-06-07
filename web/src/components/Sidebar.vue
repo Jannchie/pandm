@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { runColor } from '../colors'
 import { timeAgo } from '../fmt'
-import { selectAll, selectNone, state, toggleRun, visibleRuns } from '../store'
+import { removeRun, selectAll, selectNone, state, toggleRun, visibleRuns } from '../store'
+import type { Run } from '../api'
+
+function confirmDelete(run: Run) {
+  if (window.confirm(`Delete run "${run.name}" and its media? This cannot be undone.`)) removeRun(run.id)
+}
 </script>
 
 <template>
@@ -72,6 +77,21 @@ import { selectAll, selectNone, state, toggleRun, visibleRuns } from '../store'
         >
           <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
         </svg>
+        <button
+          class="opacity-0 group-hover:opacity-100 text-fg-dim hover:text-err transition-all shrink-0 cursor-pointer"
+          title="Delete run"
+          @click.stop="confirmDelete(run)"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
       </div>
 
       <div v-if="state.ready && visibleRuns.length === 0" class="px-2 py-8 text-center text-[12px] text-fg-dim">
