@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pandm",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  // dashboard SPA — build it first: pnpm -C ../web build
+  "assets": {
+    "directory": "../src/pandm/static",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pandm",
+      "database_id": "REPLACE_AFTER_wrangler_d1_create",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "pandm-media"
+    }
+  ],
+  "observability": { "enabled": true }
+  // secrets (set via `wrangler secret put`):
+  //   GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET — GitHub OAuth App
+  //   PANDM_SECRET_KEY — session signing secret (e.g. `openssl rand -hex 32`)
+}

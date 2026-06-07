@@ -29,3 +29,24 @@ jobs:
         run: uv run pytest tests -q
       - name: Typecheck
         run: uvx pyright
+
+  workers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: workers/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: workers
+      - name: Typecheck
+        run: pnpm typecheck
+        working-directory: workers
+      - name: Contract tests
+        run: pnpm test
+        working-directory: workers

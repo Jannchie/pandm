@@ -1,0 +1,21 @@
+{
+  "name": "pandm-workers",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "pnpm -C ../web install && pnpm -C ../web build && wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.7.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.9.0",
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "typescript": "^5.8.3",
+    "vitest": "~3.2.0",
+    "wrangler": "^4.0.0"
+  }
+}

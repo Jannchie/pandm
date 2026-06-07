@@ -50,19 +50,37 @@ Data lives in `./.pandm` by default; override with `--dir` or `PANDM_DIR`.
 
 ### Cloud mode
 
-Run a server anywhere, then point training scripts at it — no code changes:
+Training scripts never change — sign in once per machine and `pandm.init()` dual-writes: local stays the source of truth, a background thread syncs to the server, and anything logged offline is backfilled on reconnect. Delivery is exact-once (re-pushes are deduped server-side).
 
 ```sh
-pandm server --api-key my-secret               # on the server (default port 7878)
+pandm login https://pandm.example.com   # browser approval, like `gh auth login`
+python train.py                          # local + cloud
+pandm sync                               # backfill runs whose process already exited
 ```
+
+Each user signs in with GitHub and sees only their own runs. Two interchangeable server implementations speak the same protocol:
+
+**Cloudflare Workers** (serverless: D1 for metrics, R2 for media — `workers/`):
 
 ```sh
-export PANDM_REMOTE=http://my-host:7878
-export PANDM_API_KEY=my-secret
-python train.py                                 # same script, now reports over HTTP
+cd workers && pnpm install
+npx wrangler d1 create pandm             # paste the database_id into wrangler.jsonc
+npx wrangler secret put GITHUB_CLIENT_ID     # OAuth App callback: https://<domain>/api/auth/callback
+npx wrangler secret put GITHUB_CLIENT_SECRET
+npx wrangler secret put PANDM_SECRET_KEY     # e.g. `openssl rand -hex 32`
+npx wrangler d1 migrations apply pandm --remote
+pnpm run deploy
 ```
 
-The API key protects write endpoints only; put the server behind a reverse proxy if reads need auth too. If the server becomes unreachable mid-run, the SDK warns and keeps training: it retries every 30s, replays run creation on recovery, and drops whatever was logged while offline.
+> Note: D1 bills per row written (100k/day free). Logging ~10 metrics/sec around the clock lands in the paid tier — a few dollars a month.
+
+**Self-hosted Python server** (same binary as `pandm ui`):
+
+```sh
+GITHUB_CLIENT_ID=… GITHUB_CLIENT_SECRET=… docker compose up -d   # multi-user mode
+```
+
+Without OAuth env vars the server falls back to single-tenant mode — `pandm server --api-key my-secret` plus `PANDM_REMOTE`/`PANDM_API_KEY` on the client (remote-only, no local copy, no accounts).
 
 ## API
 
@@ -80,6 +98,7 @@ The API key protects write endpoints only; put the server behind a reverse proxy
 uv sync && uv run pytest          # python sdk + server
 cd web && pnpm install && pnpm dev   # dashboard dev server (proxies to :7878)
 pnpm build                        # bundles the dashboard into src/pandm/static
+cd workers && pnpm install && pnpm test   # cloudflare workers server (contract tests)
 ```
 
 ## License

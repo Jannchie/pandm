@@ -17,6 +17,15 @@ check: test typecheck
 web-build:
     pnpm -C web build
 
+# Cloudflare Workers 契约测试
+workers-test:
+    pnpm -C workers typecheck
+    pnpm -C workers test
+
+# 部署到 Cloudflare（先建前端再 wrangler deploy）
+workers-deploy:
+    pnpm -C workers run deploy
+
 # 前端开发服务器（/api 代理到 127.0.0.1:7878）
 web-dev:
     pnpm -C web dev

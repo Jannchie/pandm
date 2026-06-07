@@ -14,3 +14,7 @@ src/pandm/static/
 
 # misc
 .DS_Store
+
+# workers
+workers/node_modules/
+workers/.wrangler/
