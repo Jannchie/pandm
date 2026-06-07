@@ -23,7 +23,6 @@ watch(
     idx.value = Math.min(idx.value, Math.max(0, len - 1))
   },
 )
-
 const targetStep = computed(() => steps.value[idx.value] ?? 0)
 
 const cards = computed(() => {
@@ -67,7 +66,7 @@ function open(card: { run: Run; item: MediaItem }) {
       :style="{
         gridTemplateColumns: state.columns
           ? `repeat(${state.columns}, minmax(0, 1fr))`
-          : 'repeat(auto-fill, minmax(200px, 1fr))',
+          : 'repeat(auto-fit, minmax(200px, 1fr))',
       }"
     >
       <figure
