@@ -5,7 +5,7 @@ import { runColor } from '../colors'
 import { fmtStep } from '../fmt'
 import { state } from '../store'
 
-const props = defineProps<{ mediaKey: string; entries: { run: Run; items: MediaItem[] }[] }>()
+const props = defineProps<{ mediaKey: string; entries: { run: Run; items: MediaItem[] }[]; globalStep?: number | null }>()
 
 const steps = computed(() => {
   const set = new Set<number>()
@@ -23,6 +23,20 @@ watch(
     idx.value = Math.min(idx.value, Math.max(0, len - 1))
   },
 )
+// the panel-wide slider drives every group to its nearest logged step;
+// the group's own slider still works for local fine-tuning afterwards
+watch(
+  () => props.globalStep,
+  (g) => {
+    if (g === null || g === undefined || steps.value.length === 0) return
+    let best = 0
+    steps.value.forEach((s, i) => {
+      if (Math.abs(s - g) < Math.abs(steps.value[best] - g)) best = i
+    })
+    idx.value = best
+  },
+)
+
 const targetStep = computed(() => steps.value[idx.value] ?? 0)
 
 const cards = computed(() => {
