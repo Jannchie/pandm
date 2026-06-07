@@ -9,7 +9,6 @@ from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 
 from . import __version__
@@ -27,15 +26,8 @@ DirOption = typer.Option(None, "--dir", "-d", help="Data directory (default: ./.
 
 
 def _banner(url: str, data_dir: Path, mode: str) -> None:
-    console.print(
-        Panel.fit(
-            f"[bold]pandm[/bold] [dim]v{__version__}[/dim] · {mode}\n\n"
-            f"  [bold cyan]{url}[/bold cyan]\n"
-            f"  [dim]data: {data_dir}[/dim]",
-            border_style="bright_black",
-            padding=(1, 3),
-        )
-    )
+    console.print(f"\n[bold]pandm[/bold] [dim]v{__version__}[/dim] · {mode}")
+    console.print(f"[bold cyan]{url}[/bold cyan] [dim]· data: {data_dir}[/dim]\n")
 
 
 @app.command()
