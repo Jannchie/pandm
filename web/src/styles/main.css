@@ -1,0 +1,95 @@
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  background: #09090b;
+  color: #e8e8ec;
+  font-family: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(110, 121, 214, 0.35);
+}
+
+/* slim, subtle scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* range slider */
+input[type='range'] {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 3px;
+  border-radius: 3px;
+  background: #2a2a33;
+  outline: none;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #8b95f6;
+  border: none;
+  transition: transform 0.1s ease;
+}
+input[type='range']::-webkit-slider-thumb:hover {
+  transform: scale(1.25);
+}
+input[type='range']::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #8b95f6;
+  border: none;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.pulse {
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}

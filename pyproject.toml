@@ -1,0 +1,34 @@
+[project]
+name = "pandm"
+version = "0.1.0"
+description = "Beautiful, local-first experiment tracking. A lightweight alternative to wandb / tensorboard."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Jannchie", email = "jannchie@gmail.com" }]
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "typer>=0.12",
+    "rich>=13",
+    "pillow>=10",
+    "httpx>=0.27",
+    "python-multipart>=0.0.9",
+]
+
+[project.scripts]
+pandm = "pandm.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+# the built dashboard is gitignored but must ship with the package
+artifacts = ["src/pandm/static/**"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pandm"]
+
+[dependency-groups]
+dev = ["pytest>=8"]

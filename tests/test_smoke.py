@@ -1,0 +1,179 @@
+"""End-to-end smoke tests: SDK local writes, server read API, cloud ingest API."""
+
+from __future__ import annotations
+
+import io
+import os
+import subprocess
+import sys
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+from PIL import Image
+
+import pandm
+from pandm.server import create_app
+from pandm.storage import LocalStore
+
+
+def _png_bytes(color=(80, 120, 240)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (32, 32), color).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _get_run(store: LocalStore, run_id: str) -> dict:
+    row = store.get_run(run_id)
+    assert row is not None
+    return row
+
+
+@pytest.fixture()
+def data_dir(tmp_path):
+    return tmp_path / ".pandm"
+
+
+def test_sdk_local_roundtrip(data_dir):
+    run = pandm.init(project="proj", name="test-run", config={"lr": 0.1}, directory=data_dir)
+    for step in range(20):
+        run.log({"loss": 1.0 / (step + 1), "acc": step / 20}, step=step)
+    run.log_image("samples", Image.new("RGB", (16, 16), (255, 0, 0)), step=19, caption="hi")
+    run.finish()
+
+    store = LocalStore(data_dir)
+    runs = store.list_runs("proj")
+    assert len(runs) == 1
+    assert runs[0]["name"] == "test-run"
+    assert runs[0]["status"] == "finished"
+    assert runs[0]["config"] == {"lr": 0.1}
+    assert runs[0]["summary"]["loss"] == pytest.approx(1.0 / 20)
+
+    keys = {k["key"] for k in store.metric_keys(run.id)}
+    assert keys == {"loss", "acc"}
+    series = store.metric_series(run.id, "loss")
+    assert len(series["steps"]) == 20
+    assert series["steps"][-1] == 19
+
+    media = store.list_media(run.id)
+    assert len(media) == 1
+    assert media[0]["caption"] == "hi"
+    assert store.media_path(run.id, media[0]["filename"]) is not None
+
+
+def test_sdk_auto_step_and_context_manager(data_dir):
+    with pandm.init(project="proj", directory=data_dir) as run:
+        run.log({"loss": 3.0})
+        run.log({"loss": 2.0})
+        run.log({"loss": 1.0})
+    store = LocalStore(data_dir)
+    series = store.metric_series(run.id, "loss")
+    assert series["steps"] == [0, 1, 2]
+    assert _get_run(store, run.id)["status"] == "finished"
+
+
+def test_sdk_crash_marks_status(data_dir):
+    run = pandm.init(project="proj", directory=data_dir)
+    with pytest.raises(ValueError), run:
+        run.log({"loss": 1.0})
+        raise ValueError("boom")
+    assert _get_run(LocalStore(data_dir), run.id)["status"] == "crashed"
+
+
+def test_server_read_api(data_dir):
+    run = pandm.init(project="proj", name="api-run", config={"bs": 32}, directory=data_dir)
+    for step in range(10):
+        run.log({"loss": float(10 - step)}, step=step)
+    run.log_image("img", Image.new("RGB", (8, 8)), step=9)
+    run.finish()
+
+    client = TestClient(create_app(data_dir))
+    assert client.get("/api/projects").json()[0]["project"] == "proj"
+
+    runs = client.get("/api/runs", params={"project": "proj"}).json()
+    assert runs[0]["id"] == run.id
+    assert runs[0]["summary"]["loss"] == 1.0
+
+    series = client.get(f"/api/runs/{run.id}/metrics/loss").json()
+    assert series["values"][0] == 10.0
+
+    media = client.get(f"/api/runs/{run.id}/media").json()
+    assert len(media) == 1
+    img = client.get(media[0]["url"])
+    assert img.status_code == 200
+    assert img.headers["content-type"] == "image/png"
+
+
+def test_ingest_api_with_key(data_dir):
+    client = TestClient(create_app(data_dir, api_key="sekrit"))
+
+    # without key -> 401
+    assert client.post("/api/runs", json={"project": "p", "name": "n"}).status_code == 401
+
+    headers = {"x-api-key": "sekrit"}
+    run_id = client.post(
+        "/api/runs", json={"id": "abc12345", "project": "p", "name": "n", "config": {"a": 1}}, headers=headers
+    ).json()["id"]
+    assert run_id == "abc12345"
+
+    rows = {"rows": [{"key": "loss", "step": i, "value": float(i), "ts": 1.0 + i} for i in range(5)]}
+    assert client.post(f"/api/runs/{run_id}/metrics", json=rows, headers=headers).json()["inserted"] == 5
+
+    resp = client.post(
+        f"/api/runs/{run_id}/media",
+        files={"file": ("x.png", _png_bytes())},
+        data={"key": "samples", "step": "4", "caption": "c"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+
+    assert client.post(f"/api/runs/{run_id}/finish", json={"status": "finished"}, headers=headers).status_code == 200
+
+    # reads stay open without a key
+    run = client.get(f"/api/runs/{run_id}").json()
+    assert run["status"] == "finished"
+    assert run["summary"]["loss"] == 4.0
+
+    assert client.delete(f"/api/runs/{run_id}", headers=headers).json()["deleted"] is True
+    assert client.get(f"/api/runs/{run_id}").status_code == 404
+
+
+def test_uncaught_exception_marks_crashed(data_dir, tmp_path):
+    script = tmp_path / "boom.py"
+    script.write_text(
+        "import pandm\n"
+        "run = pandm.init(project='p', name='boom')\n"
+        "run.log({'loss': 1.0})\n"
+        "raise RuntimeError('boom')\n"
+    )
+    env = {**os.environ, "PANDM_DIR": str(data_dir)}
+    proc = subprocess.run([sys.executable, str(script)], env=env, capture_output=True)
+    assert proc.returncode != 0
+    runs = LocalStore(data_dir).list_runs("p")
+    assert len(runs) == 1
+    assert runs[0]["status"] == "crashed"
+
+
+def test_stale_running_run_reported_crashed(data_dir):
+    store = LocalStore(data_dir)
+    store.create_run("r1", "p", "n", {})
+    assert _get_run(store, "r1")["status"] == "running"
+    # simulate a hard-killed process: heartbeat stopped beyond the stale threshold
+    with store._lock:
+        store._db.execute("UPDATE runs SET updated_at = ? WHERE id = 'r1'", (time.time() - 120,))
+        store._db.commit()
+    assert _get_run(store, "r1")["status"] == "crashed"
+    assert store.list_runs()[0]["status"] == "crashed"
+    # if the process comes back (e.g. it was just suspended), the status self-heals
+    store.heartbeat("r1")
+    assert _get_run(store, "r1")["status"] == "running"
+
+
+def test_downsampling(data_dir):
+    store = LocalStore(data_dir)
+    store.create_run("r1", "p", "n", {})
+    store.log_metrics("r1", [("loss", i, float(i), float(i)) for i in range(10_000)])
+    series = store.metric_series("r1", "loss", max_points=500)
+    assert len(series["steps"]) <= 502
+    assert series["steps"][0] == 0
+    assert series["steps"][-1] == 9999  # last point always kept

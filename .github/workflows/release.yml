@@ -1,0 +1,68 @@
+name: Release
+
+# Publish to PyPI when a version tag is pushed:
+#   git tag v0.1.0 && git push origin v0.1.0
+# Uses PyPI trusted publishing (OIDC) — no API token needed, but the
+# publisher must be registered on pypi.org for this repo + workflow.
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Build dashboard
+        run: pnpm install --frozen-lockfile && pnpm build
+        working-directory: web
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Tag must match pyproject version
+        run: |
+          v="$(uv version --short)"
+          if [ "v$v" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME != pyproject version $v"
+            exit 1
+          fi
+
+      - name: Dashboard must be bundled
+        run: test -f src/pandm/static/index.html
+
+      - run: uv build
+
+      - name: Smoke-test wheel
+        run: |
+          uv run --no-project --isolated --with dist/*.whl python -c "import pandm; print(pandm.__version__)"
+          uv run --no-project --isolated --with dist/*.whl pandm version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pandm
+    permissions:
+      id-token: write # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

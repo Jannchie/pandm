@@ -1,0 +1,16 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+dist/
+*.egg-info/
+
+# pandm data
+.pandm/
+
+# web
+web/node_modules/
+src/pandm/static/
+
+# misc
+.DS_Store
