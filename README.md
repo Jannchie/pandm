@@ -48,6 +48,22 @@ pandm delete <run_id>
 
 Data lives in `./.pandm` by default; override with `--dir` or `PANDM_DIR`.
 
+### Hugging Face Accelerate
+
+Pass a `PandmTracker` instance to `Accelerator` (Accelerate only resolves strings for its built-in trackers) — `accelerator.log` then reports to pandm, and `end_training` finishes the run:
+
+```python
+from accelerate import Accelerator
+from pandm.integrations.accelerate import PandmTracker
+
+accelerator = Accelerator(log_with=PandmTracker(project="mnist", name="baseline"))
+accelerator.init_trackers("mnist", config={"lr": 1e-3})
+accelerator.log({"loss": 0.42}, step=10)
+accelerator.end_training()
+```
+
+For images, unwrap the raw run: `accelerator.get_tracker("pandm", unwrap=True).log_image("samples", img, step=step, caption=prompt)`.
+
 ### Cloud mode
 
 Training scripts never change — sign in once per machine and `pandm.init()` dual-writes: local stays the source of truth, a background thread syncs to the server, and anything logged offline is backfilled on reconnect. Delivery is exact-once (re-pushes are deduped server-side).
