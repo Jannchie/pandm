@@ -17,6 +17,7 @@ export const state = reactive({
   touched: false, // user has manually changed the selection
   search: '',
   sidebarOpen: false, // mobile drawer; ignored on md+ where the sidebar is static
+  sidebarWidth: 280, // desktop sidebar width in px, drag-resizable
   tab: 'metrics' as 'metrics' | 'media' | 'table',
   columns: 0, // grid columns for metrics/media, 0 = auto
   smoothing: 0,
@@ -178,7 +179,7 @@ export async function signOut() {
 // view settings survive reloads; URL params (below) still win for deep links
 
 const PREFS_KEY = 'pandm-prefs'
-const PREF_FIELDS = ['tab', 'columns', 'smoothing', 'xAxis', 'logScale', 'selected', 'live'] as const
+const PREF_FIELDS = ['tab', 'columns', 'smoothing', 'xAxis', 'logScale', 'selected', 'live', 'sidebarWidth'] as const
 
 try {
   const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}')

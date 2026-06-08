@@ -1,8 +1,44 @@
 <script setup lang="ts">
+import { computed, onUnmounted, ref } from 'vue'
 import { runColor } from '../colors'
 import { timeAgo } from '../fmt'
 import { removeRun, selectAll, selectNone, selectRun, state, visibleRuns } from '../store'
 import type { Run } from '../api'
+
+const MIN_W = 200
+const MAX_W = 560
+
+// desktop-only width: on mobile the drawer keeps its fixed `w-70`/`max-w` sizing
+const isDesktop = ref(window.matchMedia('(min-width: 768px)').matches)
+const mq = window.matchMedia('(min-width: 768px)')
+const onMq = (e: MediaQueryListEvent) => (isDesktop.value = e.matches)
+mq.addEventListener('change', onMq)
+onUnmounted(() => mq.removeEventListener('change', onMq))
+
+const asideStyle = computed(() => (isDesktop.value ? { width: `${state.sidebarWidth}px` } : {}))
+
+const dragging = ref(false)
+function startResize(e: PointerEvent) {
+  dragging.value = true
+  const startX = e.clientX
+  const startW = state.sidebarWidth
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor = 'col-resize'
+
+  function move(ev: PointerEvent) {
+    const next = startW + (ev.clientX - startX)
+    state.sidebarWidth = Math.min(MAX_W, Math.max(MIN_W, next))
+  }
+  function up() {
+    dragging.value = false
+    document.body.style.userSelect = ''
+    document.body.style.cursor = ''
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+}
 
 function confirmDelete(run: Run) {
   if (window.confirm(`Delete run "${run.name}" and its media? This cannot be undone.`)) removeRun(run.id)
@@ -17,8 +53,9 @@ function confirmDelete(run: Run) {
     @click="state.sidebarOpen = false"
   />
   <aside
-    class="fixed top-12 bottom-0 left-0 z-50 w-70 max-w-[82vw] bg-bg border-r border-border flex flex-col min-h-0 transition-transform duration-200 will-change-transform md:static md:z-auto md:max-w-none md:shrink-0 md:translate-x-0!"
+    class="fixed top-12 bottom-0 left-0 z-50 w-70 max-w-[82vw] bg-bg border-r border-border flex flex-col min-h-0 transition-transform duration-200 will-change-transform md:relative md:top-0 md:z-auto md:max-w-none md:shrink-0 md:translate-x-0! md:transition-none"
     :class="state.sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
+    :style="asideStyle"
   >
     <!-- search (h-9 matches the main tab bar so the border lines align) -->
     <div class="relative h-9 shrink-0 border-b border-border">
@@ -106,6 +143,19 @@ function confirmDelete(run: Run) {
       <div v-if="state.ready && visibleRuns.length === 0" class="px-2 py-8 text-center text-[12px] text-fg-dim">
         {{ state.search ? 'No runs match the filter' : 'No runs yet' }}
       </div>
+    </div>
+
+    <!-- desktop resize handle: thin hit-area on the right edge, accent line on hover/drag -->
+    <div
+      class="hidden md:block absolute top-0 right-0 bottom-0 w-1.5 translate-x-1/2 cursor-col-resize group/resize z-10"
+      :class="{ 'is-dragging': dragging }"
+      title="Drag to resize"
+      @pointerdown.prevent="startResize"
+    >
+      <span
+        class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border transition-colors group-hover/resize:bg-accent-hi"
+        :class="dragging ? '!bg-accent-hi' : ''"
+      />
     </div>
   </aside>
 </template>
