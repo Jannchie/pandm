@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { runColor } from '../colors'
 import { timeAgo } from '../fmt'
-import { removeRun, selectAll, selectNone, state, toggleRun, visibleRuns } from '../store'
+import { removeRun, selectAll, selectNone, selectRun, state, visibleRuns } from '../store'
 import type { Run } from '../api'
 
 function confirmDelete(run: Run) {
@@ -51,7 +51,7 @@ function confirmDelete(run: Run) {
         :key="run.id"
         class="group flex items-center gap-2 px-2.5 py-1 cursor-pointer transition-colors"
         :class="state.selected.includes(run.id) ? 'bg-elev/70' : 'hover:bg-elev/40'"
-        @click="toggleRun(run.id)"
+        @click="selectRun(run.id, $event.ctrlKey || $event.metaKey)"
       >
         <!-- color dot doubles as the checkbox -->
         <span

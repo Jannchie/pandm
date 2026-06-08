@@ -38,8 +38,14 @@ export const selectedRuns = computed(() => state.runs.filter((r) => state.select
 
 export const anyRunning = computed(() => selectedRuns.value.some((r) => r.status === 'running'))
 
-export function toggleRun(id: string) {
+// plain click = single-select (show only this run); ctrl/cmd-click = toggle into
+// the current selection for side-by-side comparison
+export function selectRun(id: string, additive: boolean) {
   state.touched = true
+  if (!additive) {
+    state.selected = [id]
+    return
+  }
   const idx = state.selected.indexOf(id)
   if (idx >= 0) state.selected.splice(idx, 1)
   else state.selected.push(id)
@@ -80,8 +86,10 @@ export async function refresh() {
     }
     state.offline = false
     if (!state.ready) {
-      // first load: pre-select the most recent runs so the page isn't empty
-      state.selected = runs.slice(0, 4).map((r) => r.id)
+      // honour the restored (localStorage / URL) selection, dropping ids that no
+      // longer exist; fall back to the most recent runs so the page isn't empty
+      const valid = state.selected.filter((id) => state.runs.some((r) => r.id === id))
+      state.selected = valid.length ? valid : state.runs.slice(0, 4).map((r) => r.id)
       state.ready = true
     }
   } catch (err) {
@@ -170,12 +178,15 @@ export async function signOut() {
 // view settings survive reloads; URL params (below) still win for deep links
 
 const PREFS_KEY = 'pandm-prefs'
-const PREF_FIELDS = ['tab', 'columns', 'smoothing', 'xAxis', 'logScale'] as const
+const PREF_FIELDS = ['tab', 'columns', 'smoothing', 'xAxis', 'logScale', 'selected', 'live'] as const
 
 try {
   const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}')
   for (const f of PREF_FIELDS) {
-    if (f in saved && typeof saved[f] === typeof state[f]) (state as any)[f] = saved[f]
+    // match both primitive type and array-ness so a corrupted `selected` can't
+    // become a non-array and break `.includes`
+    if (f in saved && typeof saved[f] === typeof state[f] && Array.isArray(saved[f]) === Array.isArray(state[f]))
+      (state as any)[f] = saved[f]
   }
 } catch {
   /* corrupted prefs are simply ignored */

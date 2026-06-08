@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { rotateApiKey } from '../api'
 import { runColor } from '../colors'
-import { anyRunning, selectAll, selectNone, setProject, signOut, state, toggleLive, toggleRun } from '../store'
+import { anyRunning, selectAll, selectNone, selectRun, setProject, signOut, state, toggleLive } from '../store'
 
 const projOpen = ref(false)
 const runsOpen = ref(false)
@@ -129,7 +129,7 @@ async function rotateKey() {
           :key="run.id"
           class="flex items-center gap-2 px-3 py-1 cursor-pointer transition-colors"
           :class="state.selected.includes(run.id) ? 'bg-elev/70' : 'hover:bg-elev/40'"
-          @click="toggleRun(run.id)"
+          @click="selectRun(run.id, $event.ctrlKey || $event.metaKey)"
         >
           <span
             class="w-2 h-2 rounded-full shrink-0"
