@@ -22,15 +22,19 @@ from typing import Any
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
-    id          TEXT PRIMARY KEY,
-    project     TEXT NOT NULL DEFAULT 'default',
-    name        TEXT NOT NULL,
-    status      TEXT NOT NULL DEFAULT 'running',
-    config      TEXT NOT NULL DEFAULT '{}',
-    created_at  REAL NOT NULL,
-    updated_at  REAL NOT NULL,
-    finished_at REAL,
-    user_id     INTEGER
+    id             TEXT PRIMARY KEY,
+    project        TEXT NOT NULL DEFAULT 'default',
+    name           TEXT NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'running',
+    config         TEXT NOT NULL DEFAULT '{}',
+    created_at     REAL NOT NULL,
+    updated_at     REAL NOT NULL,
+    finished_at    REAL,
+    user_id        INTEGER,
+    -- training progress for ETA: current step out of total (either may be NULL)
+    progress       REAL,
+    progress_total REAL,
+    progress_ts    REAL
 );
 CREATE TABLE IF NOT EXISTS metrics (
     run_id TEXT NOT NULL,
@@ -114,6 +118,9 @@ def _run_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "updated_at": row["updated_at"],
         "finished_at": row["finished_at"],
         "user_id": row["user_id"],
+        "progress": row["progress"],
+        "progress_total": row["progress_total"],
+        "progress_ts": row["progress_ts"],
     }
     if run["status"] == "running" and time.time() - run["updated_at"] > STALE_AFTER:
         run["status"] = "crashed"
@@ -140,6 +147,9 @@ class LocalStore:
         cols = {r["name"] for r in self._db.execute("PRAGMA table_info(runs)").fetchall()}
         if "user_id" not in cols:
             self._db.execute("ALTER TABLE runs ADD COLUMN user_id INTEGER")
+        for col in ("progress", "progress_total", "progress_ts"):
+            if col not in cols:
+                self._db.execute(f"ALTER TABLE runs ADD COLUMN {col} REAL")
         self._db.execute("CREATE INDEX IF NOT EXISTS idx_runs_user ON runs (user_id)")
 
     def close(self) -> None:
@@ -211,6 +221,27 @@ class LocalStore:
             self._db.execute(
                 "UPDATE runs SET updated_at = ? WHERE id = ? AND status = 'running'", (ts, run_id)
             )
+            self._db.commit()
+
+    def update_progress(
+        self, run_id: str, current: float, total: float | None = None, ts: float | None = None
+    ) -> None:
+        """Record training progress (also doubles as a heartbeat). `total=None`
+        keeps whatever total was set before — the loop need only resend it on change."""
+        ts = ts if ts is not None else time.time()
+        with self._lock:
+            if total is None:
+                self._db.execute(
+                    "UPDATE runs SET progress = ?, progress_ts = ?, updated_at = ?"
+                    " WHERE id = ? AND status = 'running'",
+                    (current, ts, ts, run_id),
+                )
+            else:
+                self._db.execute(
+                    "UPDATE runs SET progress = ?, progress_total = ?, progress_ts = ?, updated_at = ?"
+                    " WHERE id = ? AND status = 'running'",
+                    (current, total, ts, ts, run_id),
+                )
             self._db.commit()
 
     def finish_run(self, run_id: str, status: str = "finished", finished_at: float | None = None) -> None:

@@ -40,6 +40,7 @@ def simulate(project: str, name: str, lr: float, bs: int, palette_idx: int, step
     run = pandm.init(
         project=project,
         name=name,
+        total_steps=steps,  # lets the dashboard estimate an ETA; progress tracks the step below
         config={"lr": lr, "batch_size": bs, "optimizer": "adamw", "model": "resnet18", "seed": seed},
     )
     base = 2.0 + rng.uniform(-0.2, 0.4)

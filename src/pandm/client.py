@@ -121,6 +121,14 @@ class RemoteBackend:
             return False
         return self._request("POST", f"/api/runs/{run_id}/heartbeat") is not None
 
+    def update_progress(self, run_id: str, current: float, total: float | None, ts: float) -> bool:
+        if not self._ensure_created():
+            return False
+        payload: dict[str, Any] = {"current": current, "ts": ts}
+        if total is not None:
+            payload["total"] = total
+        return self._request("POST", f"/api/runs/{run_id}/progress", json=payload) is not None
+
     def finish_run(self, run_id: str, status: str, finished_at: float) -> bool:
         if not self._ensure_created():
             return False

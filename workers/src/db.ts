@@ -20,6 +20,9 @@ export interface RunRow {
   updated_at: number
   finished_at: number | null
   user_id: number
+  progress: number | null // current step/epoch/sample, for ETA
+  progress_total: number | null // target; NULL = unknown
+  progress_ts: number | null // when progress was last reported
   summary: string | null // materialized {key: lastValue}; NULL = pre-migration row
 }
 
@@ -49,6 +52,9 @@ export function runToDict(row: RunRow, summary: Record<string, number> = {}) {
     updated_at: row.updated_at,
     finished_at: row.finished_at,
     user_id: row.user_id,
+    progress: row.progress,
+    progress_total: row.progress_total,
+    progress_ts: row.progress_ts,
     summary,
   }
 }
@@ -207,6 +213,20 @@ export async function deleteRun(db: D1Database, runId: string): Promise<string[]
 
 export const heartbeat = (db: D1Database, runId: string) =>
   db.prepare("UPDATE runs SET updated_at = ?1 WHERE id = ?2 AND status = 'running'").bind(now(), runId).run()
+
+/** Record progress (also a heartbeat). total=null keeps the previously set total. */
+export const updateProgress = (db: D1Database, runId: string, current: number, total: number | null, ts: number) =>
+  total == null
+    ? db
+        .prepare("UPDATE runs SET progress = ?1, progress_ts = ?2, updated_at = ?3 WHERE id = ?4 AND status = 'running'")
+        .bind(current, ts, ts, runId)
+        .run()
+    : db
+        .prepare(
+          "UPDATE runs SET progress = ?1, progress_total = ?2, progress_ts = ?3, updated_at = ?4 WHERE id = ?5 AND status = 'running'",
+        )
+        .bind(current, total, ts, ts, runId)
+        .run()
 
 export const finishRun = (db: D1Database, runId: string, status: string, finishedAt: number | null) => {
   const ts = finishedAt ?? now()

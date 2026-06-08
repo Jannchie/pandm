@@ -226,3 +226,39 @@ def test_cli_show_and_export(data_dir):
 
     missing = runner.invoke(cli_app, ["export", "nope", "--dir", str(data_dir)])
     assert missing.exit_code == 1
+
+
+def test_progress_tracking_local(data_dir):
+    run = pandm.init(project="p", name="prog", total_steps=100, directory=data_dir)
+    for step in range(40):
+        run.log({"loss": 1.0}, step=step)
+    run.set_progress(50, total=200)  # explicit call overrides the auto unit + total
+    run.finish()
+
+    store = LocalStore(data_dir)
+    r = _get_run(store, run.id)
+    assert r["progress"] == 50
+    assert r["progress_total"] == 200
+    assert r["progress_ts"] is not None
+
+    api_run = TestClient(create_app(data_dir)).get(f"/api/runs/{run.id}").json()
+    assert api_run["progress"] == 50
+    assert api_run["progress_total"] == 200
+
+
+def test_progress_ingest_api(data_dir):
+    client = TestClient(create_app(data_dir, api_key="k"))
+    headers = {"x-api-key": "k"}
+    client.post("/api/runs", json={"id": "p1", "project": "p", "name": "n"}, headers=headers)
+
+    assert client.post("/api/runs/p1/progress", json={"current": 30, "total": 100}, headers=headers).json()["ok"]
+    run = client.get("/api/runs/p1").json()
+    assert run["progress"] == 30 and run["progress_total"] == 100
+
+    # total omitted -> keeps the previously set total
+    client.post("/api/runs/p1/progress", json={"current": 60}, headers=headers)
+    run = client.get("/api/runs/p1").json()
+    assert run["progress"] == 60 and run["progress_total"] == 100
+
+    # writes still need the key
+    assert client.post("/api/runs/p1/progress", json={"current": 1}).status_code == 401

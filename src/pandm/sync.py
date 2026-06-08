@@ -81,11 +81,25 @@ class Uploader:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._last_contact = 0.0
+        self._pending_progress: tuple[float, float | None, float] | None = None  # latest unpushed (current, total, ts)
         self._thread = threading.Thread(target=self._loop, daemon=True, name=f"pandm-sync-{run_id}")
         self._thread.start()
 
     def notify(self) -> None:
         self._wake.set()
+
+    def set_progress(self, current: float, total: float | None, ts: float) -> None:
+        self._pending_progress = (current, total, ts)  # overwrite: only the newest matters
+        self._wake.set()
+
+    def _push_progress(self) -> None:
+        prog = self._pending_progress
+        if prog is None:
+            return
+        if self.remote.update_progress(self.run_id, *prog):
+            if self._pending_progress == prog:  # leave a newer value queued for the next pump
+                self._pending_progress = None
+            self._last_contact = time.monotonic()
 
     def _pump(self) -> bool:
         if not self.store.claim_sync_lease(self.run_id, self.owner, _LEASE_TTL):
@@ -103,6 +117,7 @@ class Uploader:
             self._wake.clear()
             try:
                 self._pump()
+                self._push_progress()
                 # keep the server's staleness detection fed during quiet stretches
                 if time.monotonic() - self._last_contact >= _REMOTE_HEARTBEAT_EVERY:
                     if self.remote.heartbeat(self.run_id, time.time()):
@@ -163,6 +178,11 @@ class DualBackend:
 
     def heartbeat(self, run_id: str, ts: float) -> None:
         self.local.heartbeat(run_id, ts)  # remote beats are throttled inside the uploader loop
+
+    def update_progress(self, run_id: str, current: float, total: float | None, ts: float) -> None:
+        self.local.update_progress(run_id, current, total, ts)
+        if self._uploader:
+            self._uploader.set_progress(current, total, ts)  # remote push throttled in the uploader loop
 
     def finish_run(self, run_id: str, status: str, finished_at: float) -> None:
         self.local.finish_run(run_id, status, finished_at)

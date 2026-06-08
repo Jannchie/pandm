@@ -222,6 +222,15 @@ app.post('/api/runs/:id/heartbeat', async (c) => {
   return c.json({ ok: true })
 })
 
+app.post('/api/runs/:id/progress', async (c) => {
+  const runId = c.req.param('id')
+  const guard = await ownerGuard(c, runId)
+  if (guard) return guard
+  const body = await c.req.json<{ current: number; total?: number | null; ts?: number }>()
+  await db.updateProgress(c.env.DB, runId, body.current, body.total ?? null, body.ts ?? Date.now() / 1000)
+  return c.json({ ok: true })
+})
+
 app.post('/api/runs/:id/finish', async (c) => {
   const runId = c.req.param('id')
   const guard = await ownerGuard(c, runId)

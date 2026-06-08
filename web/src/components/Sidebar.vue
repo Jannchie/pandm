@@ -1,9 +1,21 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { runColor } from '../colors'
-import { timeAgo } from '../fmt'
+import { estimateEta } from '../eta'
+import { fmtDuration, timeAgo } from '../fmt'
 import { removeRun, selectAll, selectNone, selectRun, state, visibleRuns } from '../store'
 import type { Run } from '../api'
+
+// per-second clock so the "time left" counts down between polls (finishAt is fixed)
+const now = ref(Date.now() / 1000)
+let ticker: ReturnType<typeof setInterval>
+onMounted(() => (ticker = setInterval(() => (now.value = Date.now() / 1000), 1000)))
+onUnmounted(() => clearInterval(ticker))
+
+// pair each run with its ETA; recomputed only when the run data changes (not every tick)
+const rows = computed(() =>
+  visibleRuns.value.map((run) => ({ run, eta: run.status === 'running' ? estimateEta(run) : null })),
+)
 
 const MIN_W = 200
 const MAX_W = 560
@@ -84,9 +96,9 @@ function confirmDelete(run: Run) {
     <!-- run list -->
     <div class="flex-1 min-h-0 overflow-y-auto">
       <div
-        v-for="run in visibleRuns"
+        v-for="{ run, eta } in rows"
         :key="run.id"
-        class="group flex items-center gap-2 px-2.5 py-1 cursor-pointer transition-colors"
+        class="group relative flex items-center gap-2 px-2.5 py-1 cursor-pointer transition-colors"
         :class="state.selected.includes(run.id) ? 'bg-elev/70' : 'hover:bg-elev/40'"
         @click="selectRun(run.id, $event.ctrlKey || $event.metaKey)"
       >
@@ -104,7 +116,12 @@ function confirmDelete(run: Run) {
             {{ run.name }}
           </div>
           <div class="text-[11px] text-fg-dim truncate leading-tight">
-            <template v-if="!state.project">{{ run.project }} · </template>{{ timeAgo(run.created_at) }}
+            <template v-if="run.status === 'running' && eta && eta.fraction != null">
+              {{ Math.round(eta.fraction * 100) }}%<template v-if="eta.finishAt"> · ~{{ fmtDuration(eta.finishAt - now) }} left</template>
+            </template>
+            <template v-else>
+              <template v-if="!state.project">{{ run.project }} · </template>{{ timeAgo(run.created_at) }}
+            </template>
           </div>
         </div>
         <span
@@ -138,6 +155,13 @@ function confirmDelete(run: Run) {
             />
           </svg>
         </button>
+
+        <!-- progress bar pinned to the row's bottom edge -->
+        <div
+          v-if="run.status === 'running' && eta && eta.fraction != null"
+          class="absolute left-0 bottom-0 h-0.5 rounded-r-full transition-[width] duration-700 ease-out pointer-events-none"
+          :style="{ width: `${Math.max(2, eta.fraction * 100)}%`, background: runColor(run.id) }"
+        />
       </div>
 
       <div v-if="state.ready && visibleRuns.length === 0" class="px-2 py-8 text-center text-[12px] text-fg-dim">

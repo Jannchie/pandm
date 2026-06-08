@@ -77,11 +77,16 @@ def init(
     name: str | None = None,
     config: dict[str, Any] | None = None,
     *,
+    total_steps: int | None = None,
     directory: str | os.PathLike | None = None,
     remote: str | bool | None = None,
     api_key: str | None = None,
 ) -> "Run":
     """Start a new run. Returns a :class:`Run`; also usable as a context manager.
+
+    `total_steps=` declares the training length so the dashboard can estimate an
+    ETA: progress then tracks the latest `log(step=...)` automatically. For other
+    units (epochs, samples) call `run.set_progress(current, total)` instead.
 
     `remote=` / `PANDM_REMOTE` -> remote-only; saved `pandm login` credentials
     -> dual-write (local + sync); `remote=False` / `PANDM_NO_SYNC` -> local-only.
@@ -99,7 +104,7 @@ def init(
         backend = DualBackend(resolve_dir(directory), resolved.url, resolved.api_key)  # type: ignore[arg-type]
     else:
         backend = LocalStore(resolve_dir(directory))
-    run = Run(backend, project=project, name=name, config=config or {})
+    run = Run(backend, project=project, name=name, config=config or {}, total_steps=total_steps)
     _active_runs.append(run)
     _register_atexit()
     return run
@@ -115,6 +120,11 @@ def log_image(key: str, image: Any, step: int | None = None, caption: str | None
     _current().log_image(key, image, step=step, caption=caption)
 
 
+def set_progress(current: float, total: float | None = None) -> None:
+    """Report training progress on the most recently started run (mirrors run.set_progress)."""
+    _current().set_progress(current, total=total)
+
+
 def finish(status: str = "finished") -> None:
     """Finish the most recently started run."""
     _current().finish(status)
@@ -127,7 +137,14 @@ def _current() -> "Run":
 
 
 class Run:
-    def __init__(self, backend: Any, project: str, name: str | None, config: dict[str, Any]):
+    def __init__(
+        self,
+        backend: Any,
+        project: str,
+        name: str | None,
+        config: dict[str, Any],
+        total_steps: int | None = None,
+    ):
         self.id = new_run_id()
         self.project = project
         self.name = name or _generate_name()
@@ -138,6 +155,11 @@ class Run:
         self._finished = False
         self._step = 0
         self._last_activity = time.time()
+        # progress for ETA: tracks the latest step when total_steps is set, or is
+        # driven explicitly by set_progress(). Reported (throttled) by the flush loop.
+        self._progress_current: float | None = None
+        self._progress_total: float | None = float(total_steps) if total_steps else None
+        self._progress_dirty = False
         backend.create_run(self.id, project, self.name, self.config)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._flush_loop, daemon=True, name=f"pandm-{self.id}")
@@ -162,9 +184,24 @@ class Run:
         ]
         with self._buf_lock:
             self._buffer.extend(rows)
+            if self._progress_total is not None:  # total declared -> progress follows the step
+                self._progress_current = step + 1  # steps completed through this one
+                self._progress_dirty = True
             should_flush = len(self._buffer) >= _FLUSH_THRESHOLD
         if should_flush:
             self._flush()
+
+    def set_progress(self, current: float, total: float | None = None) -> None:
+        """Report training progress for the dashboard ETA. `current`/`total` are in
+        any unit you choose (step, epoch, sample); `total` may be omitted to reuse
+        the last one. Throttled to the flush interval — call it freely each loop."""
+        if self._finished:
+            raise RuntimeError(f"run {self.id} is already finished")
+        with self._buf_lock:
+            self._progress_current = float(current)
+            if total is not None:
+                self._progress_total = float(total)
+            self._progress_dirty = True
 
     def log_image(self, key: str, image: Any, step: int | None = None, caption: str | None = None) -> None:
         """Log an image: PIL Image, numpy/torch array (HWC or CHW), file path, or raw bytes."""
@@ -183,6 +220,7 @@ class Run:
         self._stop.set()
         self._thread.join(timeout=5)
         self._flush()
+        self._report_progress()  # push the final progress before the status flips
         self._backend.finish_run(self.id, status, time.time())
         if self in _active_runs:
             _active_runs.remove(self)
@@ -192,6 +230,7 @@ class Run:
     def _flush_loop(self) -> None:
         while not self._stop.wait(_FLUSH_INTERVAL):
             self._flush()
+            self._report_progress()
             # heartbeat during idle stretches (long validation, data stalls),
             # so a dead process is distinguishable from a quiet one
             now = time.time()
@@ -201,6 +240,22 @@ class Run:
                     self._backend.heartbeat(self.id, now)
                 except Exception:  # noqa: BLE001 — heartbeats must never kill training
                     pass
+
+    def _report_progress(self) -> None:
+        """Push the latest progress if it changed since the last report (throttled
+        to the flush cadence). A no-op until set_progress / total_steps drives it."""
+        with self._buf_lock:
+            if not self._progress_dirty:
+                return
+            current, total = self._progress_current, self._progress_total
+            self._progress_dirty = False
+        if current is None:
+            return
+        try:
+            self._backend.update_progress(self.id, current, total, time.time())
+            self._last_activity = time.time()
+        except Exception:  # noqa: BLE001 — progress is best-effort, never kill training
+            pass
 
     def _flush(self) -> None:
         with self._buf_lock:

@@ -1,5 +1,6 @@
 import { computed, reactive, watchEffect } from 'vue'
 import * as api from './api'
+import { clearEta } from './eta'
 
 export const state = reactive({
   auth: {
@@ -69,6 +70,7 @@ export async function setProject(project: string) {
 
 export async function removeRun(id: string) {
   await api.deleteRun(id)
+  clearEta(id)
   state.runs = state.runs.filter((r) => r.id !== id)
   state.selected = state.selected.filter((s) => s !== id)
   refresh()

@@ -46,6 +46,12 @@ class MetricRowsIn(BaseModel):
     rows: list[MetricRow]
 
 
+class ProgressIn(BaseModel):
+    current: float
+    total: float | None = None
+    ts: float | None = None
+
+
 class FinishIn(BaseModel):
     status: str = "finished"
     finished_at: float | None = None
@@ -195,6 +201,14 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
     def run_heartbeat(run_id: str, user: dict | None = Depends(require_key)) -> dict[str, bool]:
         check_owner(run_id, user)
         store.heartbeat(run_id)  # server clock — immune to client clock skew
+        return {"ok": True}
+
+    @app.post("/api/runs/{run_id}/progress")
+    def run_progress(
+        run_id: str, body: ProgressIn, user: dict | None = Depends(require_key)
+    ) -> dict[str, bool]:
+        check_owner(run_id, user)
+        store.update_progress(run_id, body.current, body.total, body.ts)
         return {"ok": True}
 
     @app.post("/api/runs/{run_id}/finish")
