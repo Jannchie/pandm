@@ -130,12 +130,14 @@ class Uploader:
         self._stop.set()
         self._wake.set()
         self._thread.join(timeout=_FINISH_DRAIN_BUDGET)
+        run = self.store.get_run(self.run_id)
+        summary = run["summary"] if run else {}  # author scalars ride along with finish
         try:
             if not self._thread.is_alive():  # wedged in retries → leave the tail to `pandm sync`
                 deadline = time.monotonic() + _FINISH_DRAIN_BUDGET
                 while time.monotonic() < deadline:
                     if self._pump():
-                        if self.remote.finish_run(self.run_id, status, finished_at):
+                        if self.remote.finish_run(self.run_id, status, finished_at, summary):
                             self.store.advance_sync_cursor(self.run_id, status_synced=True)
                         break
                     time.sleep(0.2)  # offline backoff; don't spin the deadline away
@@ -199,6 +201,9 @@ class DualBackend:
         if self._uploader:
             self._uploader.set_progress(current, total, ts)  # remote push throttled in the uploader loop
 
+    def set_summary(self, run_id: str, values: dict[str, Any]) -> None:
+        self.local.set_summary(run_id, values)  # remote upload rides along with finish (§ no separate endpoint)
+
     def finish_run(self, run_id: str, status: str, finished_at: float) -> None:
         self.local.finish_run(run_id, status, finished_at)
         if self._uploader:
@@ -220,7 +225,9 @@ def _sync_one(
         if not pump_run(store, remote, run_id):
             return "server unreachable"
         if run["status"] != "running":
-            if remote.finish_run(run_id, run["status"], run["finished_at"] or run["updated_at"]):
+            if remote.finish_run(
+                run_id, run["status"], run["finished_at"] or run["updated_at"], run["summary"]
+            ):
                 store.advance_sync_cursor(run_id, status_synced=True)
         return "synced"
     finally:

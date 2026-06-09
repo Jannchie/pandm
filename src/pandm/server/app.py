@@ -55,6 +55,7 @@ class ProgressIn(BaseModel):
 class FinishIn(BaseModel):
     status: str = "finished"
     finished_at: float | None = None
+    summary: dict[str, Any] | None = None  # author scalars, sent with the run's terminal state
 
 
 def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = None) -> FastAPI:
@@ -214,6 +215,8 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
     @app.post("/api/runs/{run_id}/finish")
     def finish_run(run_id: str, body: FinishIn, user: dict | None = Depends(require_key)) -> dict[str, str]:
         check_owner(run_id, user)
+        if body.summary:
+            store.set_summary(run_id, body.summary)
         store.finish_run(run_id, body.status, body.finished_at)
         return {"status": body.status}
 

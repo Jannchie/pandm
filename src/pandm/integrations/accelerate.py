@@ -18,6 +18,7 @@ For images and anything else beyond scalar metrics, unwrap the raw run:
 
     run = accelerator.get_tracker("pandm", unwrap=True)
     run.log_image("samples", image, step=step, caption=prompt)
+    run.summary({"best/spearman": 0.773, "best/epoch": 7})  # run-level scalars at the end
 """
 
 from __future__ import annotations

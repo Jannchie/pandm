@@ -204,6 +204,11 @@ def set_progress(current: float, total: float | None = None) -> None:
     _current().set_progress(current, total=total)
 
 
+def summary(values: dict[str, Any]) -> None:
+    """Record run-level scalars on the most recently started run (mirrors run.summary)."""
+    _current().summary(values)
+
+
 def finish(status: str = "finished") -> None:
     """Finish the most recently started run."""
     _current().finish(status)
@@ -298,6 +303,18 @@ class Run:
             if total is not None:
                 self._progress_total = float(total)
             self._progress_dirty = True
+
+    def summary(self, values: dict[str, Any]) -> None:
+        """Record run-level scalars — the self-consistent metric row of the chosen
+        checkpoint (e.g. early-stop's `best/spearman`, `best/mae`, `best/epoch`), which
+        per-key stats can't reconstruct. Merges across calls (last write wins per key),
+        so write candidates during training and overwrite at the end. Call it before
+        finish(); best-effort, never raises. Express confidence intervals as flat keys
+        (`best/spearman`, `best/spearman_lo`, `best/spearman_hi`)."""
+        try:
+            self._backend.set_summary(self.id, {str(k): v for k, v in values.items()})
+        except Exception:  # noqa: BLE001 — summary is best-effort, never kill training
+            pass
 
     def log_image(self, key: str, image: Any, step: int | None = None, caption: str | None = None) -> None:
         """Log an image: PIL Image, numpy/torch array (HWC or CHW), file path, or raw bytes."""

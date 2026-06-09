@@ -47,7 +47,7 @@ def test_sdk_local_roundtrip(data_dir):
     assert runs[0]["name"] == "test-run"
     assert runs[0]["status"] == "finished"
     assert runs[0]["config"] == {"lr": 0.1}
-    assert runs[0]["summary"]["loss"] == pytest.approx(1.0 / 20)
+    assert runs[0]["stats"]["loss"]["last"] == pytest.approx(1.0 / 20)
 
     keys = {k["key"] for k in store.metric_keys(run.id)}
     assert keys == {"loss", "acc"}
@@ -92,7 +92,7 @@ def test_server_read_api(data_dir):
 
     runs = client.get("/api/runs", params={"project": "proj"}).json()
     assert runs[0]["id"] == run.id
-    assert runs[0]["summary"]["loss"] == 1.0
+    assert runs[0]["stats"]["loss"]["last"] == 1.0
 
     series = client.get(f"/api/runs/{run.id}/metrics/loss").json()
     assert series["values"][0] == 10.0
@@ -132,7 +132,7 @@ def test_ingest_api_with_key(data_dir):
     # reads stay open without a key
     run = client.get(f"/api/runs/{run_id}").json()
     assert run["status"] == "finished"
-    assert run["summary"]["loss"] == 4.0
+    assert run["stats"]["loss"]["last"] == 4.0
 
     assert client.delete(f"/api/runs/{run_id}", headers=headers).json()["deleted"] is True
     assert client.get(f"/api/runs/{run_id}").status_code == 404
@@ -312,3 +312,33 @@ def test_stats_aggregates(data_dir):
     stats = _get_run(LocalStore(data_dir), run.id)["stats"]["loss"]
     assert stats["min"] == 1.0 and stats["max"] == 5.0
     assert stats["last"] == 5.0 and stats["count"] == 4
+
+
+def test_summary_author_scalars(data_dir):
+    run = pandm.init(project="p", name="sum", directory=data_dir, remote=False)
+    run.log({"loss": 1.0})
+    run.summary({"best/spearman": 0.4146, "best/mae": 1.2269, "best/epoch": 7})
+    run.summary({"best/spearman": 0.78})  # merges: overwrites one key, keeps the rest
+    run.finish()
+
+    r = _get_run(LocalStore(data_dir), run.id)
+    assert r["summary"] == {"best/spearman": 0.78, "best/mae": 1.2269, "best/epoch": 7}
+    assert r["stats"]["loss"]["last"] == 1.0  # latest metric lives in stats, not summary
+
+    from typer.testing import CliRunner
+
+    from pandm.cli import app as cli_app
+
+    shown = CliRunner().invoke(cli_app, ["show", run.id, "--dir", str(data_dir)])
+    assert "SUMMARY" in shown.output and "best/mae" in shown.output
+
+
+def test_finish_ingests_summary(data_dir):
+    client = TestClient(create_app(data_dir, api_key="k"))
+    headers = {"x-api-key": "k"}
+    client.post("/api/runs", json={"id": "s1", "project": "p", "name": "n"}, headers=headers)
+
+    body = {"status": "finished", "summary": {"best/spearman": 0.773, "best/epoch": 7}}
+    assert client.post("/api/runs/s1/finish", json=body, headers=headers).status_code == 200
+    run = client.get("/api/runs/s1").json()
+    assert run["summary"] == {"best/spearman": 0.773, "best/epoch": 7}

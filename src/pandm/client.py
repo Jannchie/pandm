@@ -34,6 +34,7 @@ class RemoteBackend:
         self._warned = False
         self._created = False
         self._create_payload: dict[str, Any] | None = None
+        self._summary: dict[str, Any] = {}  # author scalars, sent with finish (§ no separate endpoint)
 
     def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response | None:
         if time.monotonic() < self._down_until:
@@ -144,12 +145,21 @@ class RemoteBackend:
             payload["total"] = total
         return self._request("POST", f"/api/runs/{run_id}/progress", json=payload) is not None
 
-    def finish_run(self, run_id: str, status: str, finished_at: float) -> bool:
+    def set_summary(self, run_id: str, values: dict[str, Any]) -> bool:
+        """Stash author scalars in memory; they ride along with finish_run so the
+        run-level summary lands as part of the run's terminal state, no extra endpoint."""
+        self._summary.update(values)
+        return True
+
+    def finish_run(
+        self, run_id: str, status: str, finished_at: float, summary: dict[str, Any] | None = None
+    ) -> bool:
         if not self._ensure_created():
             return False
-        resp = self._request(
-            "POST",
-            f"/api/runs/{run_id}/finish",
-            json={"status": status, "finished_at": finished_at},
-        )
+        # remote-only stashes via set_summary; dual/sync pass the local row explicitly
+        summary = summary if summary is not None else self._summary
+        body: dict[str, Any] = {"status": status, "finished_at": finished_at}
+        if summary:
+            body["summary"] = summary
+        resp = self._request("POST", f"/api/runs/{run_id}/finish", json=body)
         return resp is not None

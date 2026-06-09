@@ -21,6 +21,7 @@ for step in range(1000):
     run.log({"train/loss": loss, "train/acc": acc}, step=step)
     if step % 100 == 0:
         run.log_image("samples", sample_grid, step=step)  # PIL / numpy / torch / path
+run.summary({"best/acc": 0.99, "best/epoch": 7})  # the chosen checkpoint's self-consistent row
 run.finish()
 ```
 
@@ -131,6 +132,7 @@ Without OAuth env vars the server falls back to single-tenant mode — `pandm se
 | `pandm.init(project, name=None, config=None, *, id=None, resume=False, total_steps=None, directory=None, remote=None, api_key=None)` | start (or resume) a run |
 | `run.log(metrics, step=None)` | log scalar metrics |
 | `run.log_image(key, image, step=None, caption=None)` | log an image |
+| `run.summary(values)` | record run-level scalars (the chosen checkpoint's metric row); merges across calls |
 | `run.finish(status="finished")` | end the run (also via `atexit`) |
 | `GET /api/docs` | REST API reference on any running server |
 

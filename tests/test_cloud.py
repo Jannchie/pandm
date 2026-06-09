@@ -596,11 +596,22 @@ def test_stats_in_read_api(local_dir, server):
     client, transport = server
     run = _drain_run(local_dir, transport, n_steps=4, with_image=False)  # loss 4,3,2,1
     detail = client.get(f"/api/runs/{run.id}").json()
-    assert detail["summary"]["loss"] == 1.0  # last
     assert detail["stats"]["loss"] == {"min": 1.0, "max": 4.0, "count": 4, "last": 1.0}
     # list endpoint carries stats too
     listed = client.get("/api/runs", params={"project": "proj"}).json()
     assert listed[0]["stats"]["loss"]["max"] == 4.0
+
+
+def test_summary_rides_finish_to_server(local_dir, server):
+    client, transport = server
+    backend = DualBackend(local_dir, SERVER_URL, None, transport=transport)
+    run = Run(backend, project="proj", name="sum-run", config={})
+    run.log({"loss": 1.0}, step=0)
+    run.summary({"best/spearman": 0.773, "best/epoch": 7})
+    run.finish()  # author scalars piggyback on the finish call — no separate endpoint
+
+    detail = client.get(f"/api/runs/{run.id}").json()
+    assert detail["summary"] == {"best/spearman": 0.773, "best/epoch": 7}
 
 
 def test_resume_endpoint_flips_status(local_dir, server):

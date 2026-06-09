@@ -16,7 +16,15 @@ export interface Run {
   progress: number | null // current step/epoch/sample, for ETA
   progress_total: number | null // target; null = unknown, no ETA
   progress_ts: number | null // when progress was last reported
-  summary: Record<string, number>
+  summary: Record<string, number> // author-written run-level scalars (run.summary({...}))
+  stats: Record<string, MetricStats> // per-key aggregates; .last is the latest logged value
+}
+
+export interface MetricStats {
+  min: number
+  max: number
+  count: number
+  last: number | null
 }
 
 export interface Series {

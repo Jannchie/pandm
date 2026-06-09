@@ -133,6 +133,10 @@ def show(
         console.print("\n[bold dim]CONFIG[/bold dim]")
         for k, v in sorted(run["config"].items()):
             console.print(f"  [dim]{k}[/dim] = {v}")
+    if run["summary"]:
+        console.print("\n[bold dim]SUMMARY[/bold dim]")
+        for k, v in sorted(run["summary"].items()):
+            console.print(f"  [dim]{k}[/dim] = {v}")
     keys = store.metric_keys(run_id)
     if keys:
         console.print("\n[bold dim]METRICS[/bold dim]")
@@ -144,7 +148,7 @@ def show(
             stat = run["stats"].get(k["key"], {})
             table.add_row(
                 f"[dim]{k['key']}[/dim]", str(k["points"]), str(k["last_step"]),
-                fmt(run["summary"].get(k["key"])), fmt(stat.get("min")), fmt(stat.get("max")),
+                fmt(stat.get("last")), fmt(stat.get("min")), fmt(stat.get("max")),
             )
         console.print(table)
     media = store.list_media(run_id)

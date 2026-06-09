@@ -3,12 +3,12 @@ import { computed } from 'vue'
 import { selectedRuns, state } from '../store'
 import MetricChart from './MetricChart.vue'
 
-// the runs polling already carries summary (last value per key) — its keys
-// are exactly the metric keys, no per-run /metrics requests needed
+// the runs polling already carries per-key stats — their keys are exactly the
+// metric keys, so chart discovery needs no per-run /metrics requests
 const unionKeys = computed(() => {
   const set = new Set<string>()
   for (const run of selectedRuns.value) {
-    for (const k of Object.keys(run.summary)) set.add(k)
+    for (const k of Object.keys(run.stats)) set.add(k)
   }
   return [...set].sort()
 })

@@ -55,8 +55,8 @@ def cmd_runs(store: "LocalStore", args: argparse.Namespace) -> None:
                 "progress": r["progress"],
                 "progress_total": r["progress_total"],
                 "config": r["config"],
-                "summary": r["summary"],  # latest value per metric key
-                "stats": r["stats"],  # per key: {min, max, last, count}
+                "summary": r["summary"],  # author-written run-level scalars (run.summary)
+                "stats": r["stats"],  # per metric key: {min, max, last, count} — .last is the latest value
             }
             for r in store.list_runs(args.project)
         ]
@@ -79,17 +79,19 @@ def cmd_series(store: "LocalStore", args: argparse.Namespace) -> None:
 def cmd_compare(store: "LocalStore", args: argparse.Namespace) -> None:
     runs = [_require(store, rid) for rid in args.run_ids]
     config_keys = sorted({k for r in runs for k in r["config"]})
-    metric_keys = sorted({k for r in runs for k in r["summary"]})
+    summary_keys = sorted({k for r in runs for k in r["summary"]})
+    metric_keys = sorted({k for r in runs for k in r["stats"]})
     _emit(
         {
             "runs": [
                 {"id": r["id"], "name": r["name"], "project": r["project"], "status": r["status"]}
                 for r in runs
             ],
-            # each row: a config/metric key -> one value per run, in the same order as "runs"
+            # each row: a key -> one value per run, in the same order as "runs"
             "config": {k: [r["config"].get(k) for r in runs] for k in config_keys},
-            "summary": {k: [r["summary"].get(k) for r in runs] for k in metric_keys},
-            # stats[key][i] = {min, max, last, count} for run i — pick the best by min/max
+            # author-written run-level scalars (run.summary): the chosen checkpoint's self-consistent row
+            "summary": {k: [r["summary"].get(k) for r in runs] for k in summary_keys},
+            # stats[key][i] = {min, max, last, count} for run i — .last is the latest, pick the best by min/max
             "stats": {k: [r["stats"].get(k) for r in runs] for k in metric_keys},
         }
     )

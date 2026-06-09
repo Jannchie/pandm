@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS runs (
     name           TEXT NOT NULL,
     status         TEXT NOT NULL DEFAULT 'running',
     config         TEXT NOT NULL DEFAULT '{}',
+    -- author-written run-level scalars (run.summary({...})): the self-consistent
+    -- metric row of the chosen checkpoint, which per-key stats can't reconstruct
+    summary        TEXT NOT NULL DEFAULT '{}',
     created_at     REAL NOT NULL,
     updated_at     REAL NOT NULL,
     finished_at    REAL,
@@ -114,6 +117,7 @@ def _run_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "name": row["name"],
         "status": row["status"],
         "config": json.loads(row["config"]),
+        "summary": json.loads(row["summary"]),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "finished_at": row["finished_at"],
@@ -150,6 +154,8 @@ class LocalStore:
         for col in ("progress", "progress_total", "progress_ts"):
             if col not in cols:
                 self._db.execute(f"ALTER TABLE runs ADD COLUMN {col} REAL")
+        if "summary" not in cols:
+            self._db.execute("ALTER TABLE runs ADD COLUMN summary TEXT NOT NULL DEFAULT '{}'")
         self._db.execute("CREATE INDEX IF NOT EXISTS idx_runs_user ON runs (user_id)")
 
     def close(self) -> None:
@@ -244,6 +250,24 @@ class LocalStore:
                 )
             self._db.commit()
 
+    def set_summary(self, run_id: str, values: dict[str, Any]) -> None:
+        """Merge author-written run-level scalars (last write wins per key). Unlike
+        a metric, this is the run's terminal verdict — the self-consistent row of the
+        chosen checkpoint — so it lives on the run, not in the time series."""
+        if not values:
+            return
+        with self._lock:
+            row = self._db.execute("SELECT summary FROM runs WHERE id = ?", (run_id,)).fetchone()
+            if row is None:
+                return
+            merged = json.loads(row["summary"] or "{}")
+            merged.update(values)
+            self._db.execute(
+                "UPDATE runs SET summary = ? WHERE id = ?",
+                (json.dumps(merged, default=str), run_id),
+            )
+            self._db.commit()
+
     def finish_run(self, run_id: str, status: str = "finished", finished_at: float | None = None) -> None:
         now = finished_at if finished_at is not None else time.time()
         with self._lock:
@@ -305,10 +329,10 @@ class LocalStore:
             ).fetchall()
         runs = [_run_row_to_dict(r) for r in rows]
         ids = [r["id"] for r in runs]
-        summaries = self._summaries(ids)
-        stats = self._stats(ids, summaries)
+        # _summaries (latest value per key) now feeds only stats.last; run["summary"]
+        # is the author-written scalars carried straight from the runs row.
+        stats = self._stats(ids, self._summaries(ids))
         for run in runs:
-            run["summary"] = summaries.get(run["id"], {})
             run["stats"] = stats.get(run["id"], {})
         return runs
 
@@ -320,9 +344,7 @@ class LocalStore:
         run = _run_row_to_dict(row)
         if user_id is not None and run["user_id"] != user_id:
             return None  # not yours — indistinguishable from absent
-        summaries = self._summaries([run_id])
-        run["summary"] = summaries.get(run_id, {})
-        run["stats"] = self._stats([run_id], summaries).get(run_id, {})
+        run["stats"] = self._stats([run_id], self._summaries([run_id])).get(run_id, {})
         return run
 
     def run_owner(self, run_id: str) -> int | None:
@@ -362,7 +384,8 @@ class LocalStore:
     ) -> dict[str, dict[str, dict[str, Any]]]:
         """Per-(run, key) aggregates — min, max, count, and last (latest logged) —
         so a caller can pick the best run by a metric instead of only its last value.
-        `summary[key]` stays the last value; `stats[key]` carries the rest."""
+        `stats[key].last` is the latest value; the run-level `summary` is now reserved
+        for author-written scalars (set_summary)."""
         if not run_ids:
             return {}
         if summaries is None:

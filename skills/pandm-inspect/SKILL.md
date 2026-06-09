@@ -34,8 +34,9 @@ python scripts/pandm_inspect.py media <run_id>         # logged images with abso
 ```
 
 Add `--dir /path/to/.pandm` to any command to point at a non-default store.
-`runs` / `show` / `compare` carry each run's `summary` (the latest value per
-metric) — that's what you compare to pick a winner without reading full series.
+`runs` / `show` / `compare` carry each run's per-metric `stats` (`.last` is the
+latest value, `.max`/`.min` the best) — that's what you compare to pick a winner
+without reading full series — plus `summary`, the author-written run-level scalars.
 For images, `media` returns absolute file paths you can then open/Read directly.
 
 ## 2. CLI — quick human-readable look
@@ -69,9 +70,13 @@ WHERE key = 'val/acc' GROUP BY run_id ORDER BY best DESC;
 
 ## Semantics to keep in mind
 
-- **`summary[key]`** is the *latest* logged value (max step), not the best. For
-  the best, use **`stats[key]`** = `{min, max, last, count}`, carried alongside
-  `summary` on every run (and per-run in `compare`) — no need to scan `series`.
+- **`stats[key]`** = `{min, max, last, count}` per metric — `last` is the *latest*
+  logged value (max step), `max`/`min` the best, carried on every run (and per-run
+  in `compare`) — no need to scan `series`. Note: per-key extrema come from
+  *different* steps, so `max(spearman)` and `min(mae)` need not be the same model.
+- **`summary[key]`** is an *author-written* run-level scalar (`run.summary({...})`),
+  typically the chosen checkpoint's self-consistent metric row — empty unless the
+  training code wrote it. Prefer it over stitching per-key extrema when present.
 - **`status`** is computed on read: a `running` run whose heartbeat has been
   quiet for >60 s is reported as `crashed` (self-heals if the process resumes).
   So a run can flip to `crashed` between two reads — don't cache it.
