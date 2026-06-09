@@ -230,53 +230,15 @@ def login(
     key: Optional[str] = typer.Option(None, "--key", help="Paste an API key directly (skips the browser)."),
 ) -> None:
     """Sign in to a pandm server (browser approval, like `gh auth login`)."""
-    import time as _time
-
-    import httpx
-
     from . import credentials
 
-    server = server.rstrip("/")
-
-    if key is None:
-        try:
-            start = httpx.post(f"{server}/api/cli/start", timeout=10)
-            start.raise_for_status()
-        except httpx.HTTPError as exc:
-            console.print(f"[red]cannot reach {server}: {exc}[/red]")
-            console.print("[dim]is it running in multi-user mode (GITHUB_CLIENT_ID/SECRET set)?[/dim]")
-            raise typer.Exit(1)
-        info = start.json()
-        approve_url = f"{server}/?cli={info['user_code']}"
-        console.print(f"\nOpen [bold cyan]{approve_url}[/bold cyan]")
-        console.print(f"and approve code [bold]{info['user_code']}[/bold] after signing in.\n")
-        webbrowser.open(approve_url)
-        with console.status("waiting for approval…"):
-            deadline = _time.monotonic() + 600
-            while _time.monotonic() < deadline:
-                _time.sleep(2)
-                poll = httpx.post(f"{server}/api/cli/poll", json={"device_token": info["device_token"]}, timeout=10)
-                if poll.status_code == 404:
-                    console.print("[red]login request expired — run pandm login again[/red]")
-                    raise typer.Exit(1)
-                poll.raise_for_status()
-                if poll.json()["status"] == "approved":
-                    key = poll.json()["api_key"]
-                    break
-            else:
-                console.print("[red]timed out waiting for approval[/red]")
-                raise typer.Exit(1)
-
-    if key is None:
-        console.print("[red]no API key obtained[/red]")
+    saved = credentials.device_login(server, key=key, echo=lambda m: console.print(m, highlight=False))
+    if saved is None:
         raise typer.Exit(1)
-    me = httpx.get(f"{server}/api/me", headers={"x-api-key": key}, timeout=10)
-    if me.status_code != 200:
-        console.print("[red]server rejected the API key[/red]")
-        raise typer.Exit(1)
-    profile = me.json()
-    path = credentials.save(server, key, profile.get("login"))  # type: ignore[arg-type]
-    console.print(f"[green]logged in as [bold]{profile.get('login')}[/bold][/green] [dim]({path})[/dim]")
+    credentials.set_opted_out()  # signed in -> stop offering the login prompt in pandm.init()
+    console.print(
+        f"[green]logged in as [bold]{saved['login']}[/bold][/green] [dim]({credentials.cred_path()})[/dim]"
+    )
     console.print("[dim]pandm.init() now syncs runs to this server; PANDM_NO_SYNC=1 opts out per-run[/dim]")
 
 

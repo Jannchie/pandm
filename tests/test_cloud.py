@@ -444,3 +444,146 @@ def test_cli_delete_missing_everywhere_fails(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     result = CliRunner().invoke(cli_app, ["delete", "nope", "--dir", str(tmp_path / ".pandm"), "--yes"])
     assert result.exit_code == 1
+
+
+# --------------------------------------------- init() login offer + device flow
+
+
+def _route_device_flow(client, monkeypatch, approve_key=None):
+    """Point the httpx calls inside credentials.device_login at the in-process
+    server. With approve_key set, auto-approve the code the instant it's minted,
+    so the very next poll returns 'approved' (no second device/thread needed)."""
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        path = url.replace(SERVER_URL, "")
+        resp = client.post(path, json=json, headers=headers)
+        if path == "/api/cli/start" and approve_key is not None:
+            code = resp.json()["user_code"]
+            client.post("/api/cli/approve", json={"code": code}, headers={"x-api-key": approve_key})
+        return resp
+
+    def fake_get(url, headers=None, timeout=None):
+        return client.get(url.replace(SERVER_URL, ""), headers=headers)
+
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("httpx.get", fake_get)
+
+
+@pytest.fixture()
+def fresh_config(tmp_path, monkeypatch):
+    """Isolated config dir, no cloud env vars, and the per-process offer guard reset."""
+    import pandm.sdk as sdk
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    for var in ("PANDM_REMOTE", "PANDM_API_KEY", "PANDM_NO_SYNC", "PANDM_SILENT"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(sdk, "_login_offered", False)
+    return tmp_path
+
+
+def test_device_login_roundtrip(mu, fresh_config, monkeypatch):
+    client, alice, _, _ = mu
+    _route_device_flow(client, monkeypatch, approve_key=alice["api_key"])
+
+    saved = credentials.device_login(SERVER_URL, open_browser=False, echo=lambda _m: None, poll_interval=0.0)
+    assert saved is not None and saved["login"] == "alice"
+    creds = credentials.load()
+    assert creds is not None and creds["api_key"] == alice["api_key"]
+
+
+def test_device_login_unreachable_returns_none(fresh_config, monkeypatch):
+    def boom(*a, **k):
+        raise httpx.ConnectError("offline", request=httpx.Request("POST", "http://x"))
+
+    monkeypatch.setattr("httpx.post", boom)
+    assert credentials.device_login("http://nope", echo=lambda m: None, poll_interval=0.0) is None
+    assert credentials.load() is None  # nothing saved on failure
+
+
+def test_cli_login_signs_in_and_opts_out(mu, fresh_config, monkeypatch):
+    import pandm.credentials as creds_mod
+    from typer.testing import CliRunner
+
+    from pandm.cli import app as cli_app
+
+    client, alice, _, _ = mu
+    _route_device_flow(client, monkeypatch, approve_key=alice["api_key"])
+    real = creds_mod.device_login  # keep the poll loop instant
+    monkeypatch.setattr(creds_mod, "device_login", lambda *a, **k: real(*a, **{**k, "poll_interval": 0.0}))
+
+    result = CliRunner().invoke(cli_app, ["login", SERVER_URL])
+    assert result.exit_code == 0, result.output
+    assert "alice" in result.output
+    creds = credentials.load()
+    assert creds is not None and creds["login"] == "alice"
+    assert credentials.is_opted_out()  # logging in also silences the init() prompt
+
+
+def test_init_offer_non_interactive_hint(fresh_config, local_dir, monkeypatch, capsys):
+    import pandm
+    import pandm.sdk as sdk
+
+    monkeypatch.setattr(sdk, "_is_interactive", lambda: False)
+    run = pandm.init(project="p", directory=local_dir)
+    run.finish()
+
+    assert "pandm login" in capsys.readouterr().err
+    assert LocalStore(local_dir).get_run(run.id) is not None  # stayed local
+    assert not credentials.is_opted_out()  # a one-off hint never opts you out
+
+
+def test_init_offer_keep_local_opts_out(fresh_config, monkeypatch):
+    import pandm.sdk as sdk
+    from pandm.credentials import Remote
+
+    monkeypatch.setattr(sdk, "_is_interactive", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda *a: "k")
+    assert sdk._maybe_offer_login(Remote("local", None, None), None, None) == Remote("local", None, None)
+    assert credentials.is_opted_out()
+
+    # once opted out, later runs must not prompt at all
+    monkeypatch.setattr(sdk, "_login_offered", False)
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("must not prompt after opt-out"))
+    assert sdk._maybe_offer_login(Remote("local", None, None), None, None) == Remote("local", None, None)
+
+
+def test_init_offer_not_now_keeps_asking(fresh_config, monkeypatch):
+    import pandm.sdk as sdk
+    from pandm.credentials import Remote
+
+    monkeypatch.setattr(sdk, "_is_interactive", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda *a: "")  # Enter = not now
+    assert sdk._maybe_offer_login(Remote("local", None, None), None, None) == Remote("local", None, None)
+    assert not credentials.is_opted_out()  # not a permanent dismissal
+
+
+def test_init_offer_login_upgrades_to_dual(fresh_config, monkeypatch):
+    import pandm.sdk as sdk
+    from pandm import credentials as creds_mod
+    from pandm.credentials import Remote
+
+    monkeypatch.setattr(sdk, "_is_interactive", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda *a: "l")
+
+    def fake_device_login(server=creds_mod.DEFAULT_SERVER, **kw):
+        creds_mod.save(server, "issued-key", "alice")
+        return {"server": server.rstrip("/"), "api_key": "issued-key", "login": "alice"}
+
+    monkeypatch.setattr(creds_mod, "device_login", fake_device_login)
+    out = sdk._maybe_offer_login(Remote("local", None, None), None, None)
+    assert out.mode == "dual" and out.api_key == "issued-key"
+    assert credentials.is_opted_out()
+
+
+def test_init_offer_suppressed_by_env(fresh_config, monkeypatch):
+    import pandm.sdk as sdk
+    from pandm.credentials import Remote
+
+    monkeypatch.setattr(sdk, "_is_interactive", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("must not prompt when suppressed"))
+
+    monkeypatch.setenv("PANDM_SILENT", "1")
+    assert sdk._maybe_offer_login(Remote("local", None, None), None, None) == Remote("local", None, None)
+
+    monkeypatch.delenv("PANDM_SILENT")
+    assert sdk._maybe_offer_login(Remote("local", None, None), False, None) == Remote("local", None, None)

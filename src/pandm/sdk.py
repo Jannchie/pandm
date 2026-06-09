@@ -46,6 +46,7 @@ _NOUNS = (
 _active_runs: list["Run"] = []
 _atexit_registered = False
 _crashed = False  # set by the excepthook so atexit knows how the process died
+_login_offered = False  # one login offer per process, however many init() calls follow
 
 
 def _generate_name() -> str:
@@ -72,6 +73,81 @@ def _finish_all() -> None:
         run.finish("crashed" if _crashed else "finished")
 
 
+def _is_interactive() -> bool:
+    """A human is at the terminal and can answer a prompt without blocking a
+    backgrounded run. Factored out so tests can drive both branches."""
+    return bool(sys.stdin) and sys.stdin.isatty() and sys.stderr.isatty()
+
+
+def _maybe_offer_login(resolved: Any, remote: str | bool | None, api_key: str | None) -> Any:
+    """A run is about to go local-only. Unless the user has opted out, offer to
+    sign in: an interactive terminal gets a prompt (and, if they choose, an inline
+    login that upgrades *this* run to dual-write); a non-interactive one gets a
+    single hint on stderr. Never blocks a non-interactive run, never raises.
+
+    Returns the Remote to use — upgraded to dual if the user logs in here, else
+    the unchanged local `resolved`.
+    """
+    global _login_offered
+    from . import credentials
+
+    # explicit local intent, silenced, or already dismissed -> never offer
+    if (
+        remote is False
+        or os.environ.get("PANDM_NO_SYNC")
+        or os.environ.get("PANDM_SILENT")
+        or credentials.is_opted_out()
+    ):
+        return resolved
+    if _login_offered:
+        return resolved
+    _login_offered = True
+
+    if not _is_interactive():
+        print(
+            "pandm: not logged in — this run is saved locally to .pandm. "
+            "Run `pandm login` to sync to the cloud (PANDM_SILENT=1 silences this).",
+            file=sys.stderr,
+        )
+        return resolved
+
+    try:
+        print("\npandm: you're not logged in; this run will be saved locally only.", file=sys.stderr)
+        print(
+            "  [l] log in and sync to the cloud   "
+            "[k] keep local, don't ask again   "
+            "[Enter] not now",
+            file=sys.stderr,
+        )
+        choice = input("pandm> ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print(file=sys.stderr)
+        return resolved
+
+    if choice in ("l", "login", "y", "yes"):
+        saved = credentials.device_login(
+            credentials.DEFAULT_SERVER, echo=lambda m: print(m, file=sys.stderr)
+        )
+        if saved:
+            credentials.set_opted_out()  # signed in -> stop nagging on later runs
+            print(
+                f"pandm: signed in as {saved['login']} — this run will sync to {saved['server']}.",
+                file=sys.stderr,
+            )
+            return credentials.resolve_remote(remote, api_key)  # now resolves to dual
+        print("pandm: not signed in; continuing locally.", file=sys.stderr)
+        return resolved
+    if choice in ("k", "keep"):
+        credentials.set_opted_out()
+        print(
+            "pandm: staying local. Run `pandm login` whenever you like; "
+            "PANDM_SILENT=1 also silences this.",
+            file=sys.stderr,
+        )
+        return resolved
+    return resolved  # "not now" — ask again next process
+
+
 def init(
     project: str = "default",
     name: str | None = None,
@@ -94,6 +170,8 @@ def init(
     from .credentials import resolve_remote
 
     resolved = resolve_remote(remote, api_key)
+    if resolved.mode == "local":
+        resolved = _maybe_offer_login(resolved, remote, api_key)
     if resolved.mode == "remote_only":
         from .client import RemoteBackend
 

@@ -76,6 +76,14 @@ python train.py    # local + cloud
 pandm sync         # backfill runs whose process already exited
 ```
 
+`pandm login` uses device-flow approval (like `gh auth login`): it prints a URL
+to open in any browser and polls until you approve — so it works over ssh, where
+it won't try to open a browser on the remote host. Until you're signed in, the
+first `pandm.init()` offers to log in on an interactive terminal, or prints a
+one-line hint on a non-interactive one (CI, `nohup`, ssh) — it never blocks a
+run. `PANDM_SILENT=1` silences the hint for good, as does logging in or choosing
+*keep local*.
+
 Each user signs in with GitHub and sees only their own runs. Two interchangeable server implementations speak the same protocol — the full walkthrough (OAuth App, custom domain, backups, troubleshooting) is in **[docs/deploy.md](docs/deploy.md)**:
 
 **Cloudflare Workers** (serverless: D1 for metrics, R2 for media — `workers/`):
