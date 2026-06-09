@@ -110,6 +110,19 @@ Without OAuth env vars the server falls back to single-tenant mode — `pandm se
 | `run.finish(status="finished")` | end the run (also via `atexit`) |
 | `GET /api/docs` | REST API reference on any running server |
 
+## Agent skills
+
+LLM/agent harnesses can drive pandm through two [Agent Skills](skills/): one to
+record runs, one to read them back as JSON. Install them with
+[`npx skills`](https://github.com/vercel-labs/skills):
+
+```sh
+npx skills add Jannchie/pandm --skill pandm-track --skill pandm-inspect
+```
+
+`-g` installs at the user level, `-a claude-code` targets one agent. See
+[skills/README.md](skills/README.md) for what each skill does.
+
 ## Development
 
 ```sh

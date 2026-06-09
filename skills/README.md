@@ -11,18 +11,27 @@ any scripts); the model loads one when its `description` matches the task.
 
 ## Installing
 
-These follow the Anthropic Agent Skills layout, so they drop into any client
-that reads a skills directory:
+The quickest way is [`npx skills`](https://github.com/vercel-labs/skills) — one
+command, and it works across Claude Code, Codex, Cursor, OpenCode and others:
 
-- **Claude Code** — copy or symlink a skill folder into `.claude/skills/` (project)
-  or `~/.claude/skills/` (personal):
-  ```sh
-  mkdir -p ~/.claude/skills
-  cp -r skills/pandm-track skills/pandm-inspect ~/.claude/skills/
-  ```
-- **Other harnesses** — point your skills loader at this `skills/` directory, or
-  copy the folders wherever that harness discovers them.
+```sh
+# install both skills into the current project
+npx skills add Jannchie/pandm --skill pandm-track --skill pandm-inspect
+
+# or list what the repo offers first
+npx skills add Jannchie/pandm --list
+```
+
+Handy flags: `-g` installs at the user level instead of the project,
+`-a claude-code` targets a single agent, `-y` skips the prompts (CI). Each skill
+folder is installed whole, so `pandm-inspect`'s bundled `scripts/` come along.
+
+Prefer to do it by hand? The skills use the standard Agent Skills layout, so just
+copy a folder into your skills directory:
+
+```sh
+cp -r skills/pandm-track skills/pandm-inspect ~/.claude/skills/
+```
 
 Both skills assume the `pandm` package is importable in the environment they run
-in (`pip install pandm`). `pandm-inspect` also calls its bundled
-`scripts/pandm_inspect.py`; keep the script alongside its `SKILL.md` when copying.
+in (`pip install pandm`).
