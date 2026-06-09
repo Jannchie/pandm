@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10
       - uses: actions/setup-node@v5
@@ -47,7 +47,7 @@ jobs:
           uv run --no-project --isolated --with dist/*.whl python -c "import pandm; print(pandm.__version__)"
           uv run --no-project --isolated --with dist/*.whl pandm version
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: dist
           path: dist/
@@ -61,7 +61,7 @@ jobs:
     permissions:
       id-token: write # trusted publishing
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: dist
           path: dist/
