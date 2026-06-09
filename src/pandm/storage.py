@@ -253,6 +253,22 @@ class LocalStore:
             )
             self._db.commit()
 
+    def resume_run(self, run_id: str, ts: float | None = None) -> int:
+        """Reopen a finished/crashed run for more logging: flip it back to 'running'
+        and report the step to continue from — the current MAX(step), or -1 when the
+        run has no metrics yet (the caller logs at the returned value + 1)."""
+        ts = ts if ts is not None else time.time()
+        with self._lock:
+            self._db.execute(
+                "UPDATE runs SET status = 'running', finished_at = NULL, updated_at = ? WHERE id = ?",
+                (ts, run_id),
+            )
+            row = self._db.execute(
+                "SELECT MAX(step) AS m FROM metrics WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            self._db.commit()
+        return row["m"] if row and row["m"] is not None else -1
+
     def delete_run(self, run_id: str) -> None:
         with self._lock:
             self._db.execute("DELETE FROM metrics WHERE run_id = ?", (run_id,))
@@ -288,9 +304,12 @@ class LocalStore:
                 f"SELECT * FROM runs {where} ORDER BY created_at DESC", params
             ).fetchall()
         runs = [_run_row_to_dict(r) for r in rows]
-        summaries = self._summaries([r["id"] for r in runs])
+        ids = [r["id"] for r in runs]
+        summaries = self._summaries(ids)
+        stats = self._stats(ids, summaries)
         for run in runs:
             run["summary"] = summaries.get(run["id"], {})
+            run["stats"] = stats.get(run["id"], {})
         return runs
 
     def get_run(self, run_id: str, user_id: int | None = None) -> dict[str, Any] | None:
@@ -301,7 +320,9 @@ class LocalStore:
         run = _run_row_to_dict(row)
         if user_id is not None and run["user_id"] != user_id:
             return None  # not yours — indistinguishable from absent
-        run["summary"] = self._summaries([run_id]).get(run_id, {})
+        summaries = self._summaries([run_id])
+        run["summary"] = summaries.get(run_id, {})
+        run["stats"] = self._stats([run_id], summaries).get(run_id, {})
         return run
 
     def run_owner(self, run_id: str) -> int | None:
@@ -309,6 +330,11 @@ class LocalStore:
         with self._lock:
             row = self._db.execute("SELECT user_id FROM runs WHERE id = ?", (run_id,)).fetchone()
         return row["user_id"] if row else None
+
+    def run_exists(self, run_id: str) -> bool:
+        with self._lock:
+            row = self._db.execute("SELECT 1 FROM runs WHERE id = ?", (run_id,)).fetchone()
+        return row is not None
 
     def _summaries(self, run_ids: list[str]) -> dict[str, dict[str, float]]:
         """Latest logged value per (run, key)."""
@@ -329,6 +355,34 @@ class LocalStore:
         out: dict[str, dict[str, float]] = {}
         for r in rows:
             out.setdefault(r["run_id"], {})[r["key"]] = r["value"]
+        return out
+
+    def _stats(
+        self, run_ids: list[str], summaries: dict[str, dict[str, float]] | None = None
+    ) -> dict[str, dict[str, dict[str, Any]]]:
+        """Per-(run, key) aggregates — min, max, count, and last (latest logged) —
+        so a caller can pick the best run by a metric instead of only its last value.
+        `summary[key]` stays the last value; `stats[key]` carries the rest."""
+        if not run_ids:
+            return {}
+        if summaries is None:
+            summaries = self._summaries(run_ids)
+        placeholders = ",".join("?" * len(run_ids))
+        with self._lock:
+            rows = self._db.execute(
+                f"SELECT run_id, key, MIN(value) AS min, MAX(value) AS max, COUNT(*) AS count"
+                f" FROM metrics WHERE run_id IN ({placeholders}) GROUP BY run_id, key",
+                run_ids,
+            ).fetchall()
+        out: dict[str, dict[str, dict[str, Any]]] = {}
+        for r in rows:
+            entry: dict[str, Any] = {
+                "min": r["min"],
+                "max": r["max"],
+                "count": r["count"],
+                "last": summaries.get(r["run_id"], {}).get(r["key"]),
+            }
+            out.setdefault(r["run_id"], {})[r["key"]] = entry
         return out
 
     def metric_keys(self, run_id: str) -> list[dict[str, Any]]:

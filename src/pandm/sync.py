@@ -164,6 +164,21 @@ class DualBackend:
         remote = RemoteBackend(self._server, self._api_key, transport=self._transport)
         self._uploader = Uploader(self._root, remote, run_id, create=(project, name, config, now))
 
+    def run_exists(self, run_id: str) -> bool:
+        return self.local.run_exists(run_id)  # local-first: resume continues the local run
+
+    def resume_run(self, run_id: str) -> int:
+        step = self.local.resume_run(run_id)
+        # flip the cloud copy back to running too, but only if it was ever synced —
+        # run_exists is a plain GET, so a never-synced run doesn't trip retry warnings.
+        remote = RemoteBackend(self._server, self._api_key, transport=self._transport)
+        if remote.run_exists(run_id):
+            try:
+                remote.resume_run(run_id)
+            except Exception:  # noqa: BLE001 — remote catches up on finish; local is the truth
+                pass
+        return step
+
     def log_metrics(self, run_id: str, rows: list[tuple[str, int, float, float]]) -> None:
         self.local.log_metrics(run_id, rows)
         if self._uploader:

@@ -69,8 +69,9 @@ WHERE key = 'val/acc' GROUP BY run_id ORDER BY best DESC;
 
 ## Semantics to keep in mind
 
-- **`summary[key]`** is the *latest* logged value for that key (max step), not
-  the best — take a max/min over `series` or SQL when you want the extremum.
+- **`summary[key]`** is the *latest* logged value (max step), not the best. For
+  the best, use **`stats[key]`** = `{min, max, last, count}`, carried alongside
+  `summary` on every run (and per-run in `compare`) — no need to scan `series`.
 - **`status`** is computed on read: a `running` run whose heartbeat has been
   quiet for >60 s is reported as `crashed` (self-heals if the process resumes).
   So a run can flip to `crashed` between two reads — don't cache it.

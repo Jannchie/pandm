@@ -262,3 +262,53 @@ def test_progress_ingest_api(data_dir):
 
     # writes still need the key
     assert client.post("/api/runs/p1/progress", json={"current": 1}).status_code == 401
+
+
+# ---------------------------------------------------------------- resume + stats
+# remote=False forces local mode regardless of the dev's saved credentials.
+
+
+def test_resume_continues_run(data_dir):
+    r1 = pandm.init(project="p", id="run-aaaa", config={"lr": 0.1}, directory=data_dir, remote=False)
+    for s in range(3):
+        r1.log({"loss": float(3 - s)}, step=s)
+    r1.finish("crashed")
+
+    store = LocalStore(data_dir)
+    assert _get_run(store, "run-aaaa")["status"] == "crashed"
+
+    r2 = pandm.init(project="p", id="run-aaaa", resume=True, directory=data_dir, remote=False)
+    assert r2.id == "run-aaaa"
+    r2.log({"loss": 0.5})   # auto step continues past the last logged step (3)
+    r2.log({"loss": 0.25})  # 4
+    r2.finish()
+
+    run = _get_run(store, "run-aaaa")
+    assert run["status"] == "finished"
+    assert store.metric_series("run-aaaa", "loss")["steps"] == [0, 1, 2, 3, 4]
+    assert run["config"] == {"lr": 0.1}  # resume keeps the original config
+
+
+def test_resume_guards(data_dir):
+    pandm.init(project="p", id="dup-1", directory=data_dir, remote=False).finish()
+    # reusing an id without resume is refused (would silently append otherwise)
+    with pytest.raises(ValueError):
+        pandm.init(project="p", id="dup-1", directory=data_dir, remote=False)
+    # resume="must" on a missing run is refused
+    with pytest.raises(ValueError):
+        pandm.init(project="p", id="ghost", resume="must", directory=data_dir, remote=False)
+    # resume=True on a missing id just starts fresh
+    r = pandm.init(project="p", id="brand-new", resume=True, directory=data_dir, remote=False)
+    assert r.id == "brand-new"
+    r.finish()
+
+
+def test_stats_aggregates(data_dir):
+    run = pandm.init(project="p", directory=data_dir, remote=False)
+    for v in (3.0, 1.0, 2.0, 5.0):
+        run.log({"loss": v})
+    run.finish()
+
+    stats = _get_run(LocalStore(data_dir), run.id)["stats"]["loss"]
+    assert stats["min"] == 1.0 and stats["max"] == 5.0
+    assert stats["last"] == 5.0 and stats["count"] == 4

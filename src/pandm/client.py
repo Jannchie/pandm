@@ -79,6 +79,21 @@ class RemoteBackend:
         }
         self._ensure_created()
 
+    def run_exists(self, run_id: str) -> bool:
+        """Direct read — deliberately NOT routed through _request, so a legitimate
+        404 ('no such run') isn't mistaken for an outage and doesn't trip retries."""
+        if time.monotonic() < self._down_until:
+            return False
+        try:
+            return self._client.get(f"/api/runs/{run_id}").status_code == 200
+        except Exception:  # noqa: BLE001 — unreachable -> treat as absent, caller starts fresh
+            return False
+
+    def resume_run(self, run_id: str) -> int:
+        """Reopen the run server-side; returns the step to continue from (-1 if none)."""
+        resp = self._request("POST", f"/api/runs/{run_id}/resume")
+        return resp.json().get("max_step", -1) if resp is not None else -1
+
     def log_metrics(self, run_id: str, rows: list[tuple]) -> bool:
         """rows: (key, step, value, ts) or (key, step, value, ts, seq) — seq enables
         idempotent re-push from the sync cursor. Returns True if the server acked."""

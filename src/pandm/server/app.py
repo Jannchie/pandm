@@ -217,6 +217,11 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
         store.finish_run(run_id, body.status, body.finished_at)
         return {"status": body.status}
 
+    @app.post("/api/runs/{run_id}/resume")
+    def resume_run(run_id: str, user: dict | None = Depends(require_key)) -> dict[str, int]:
+        check_owner(run_id, user)
+        return {"max_step": store.resume_run(run_id)}
+
     @app.delete("/api/runs/{run_id}")
     def delete_run(run_id: str, user: dict | None = Depends(require_key)) -> dict[str, bool]:
         check_owner(run_id, user)

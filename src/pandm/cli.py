@@ -137,13 +137,14 @@ def show(
     if keys:
         console.print("\n[bold dim]METRICS[/bold dim]")
         table = Table(box=None, header_style="bold dim", pad_edge=False)
-        for col in ("KEY", "POINTS", "LAST STEP", "LAST VALUE"):
+        for col in ("KEY", "POINTS", "LAST STEP", "LAST VALUE", "MIN", "MAX"):
             table.add_column(col)
+        fmt = lambda v: f"{v:.6g}" if v is not None else "-"  # noqa: E731
         for k in keys:
-            last = run["summary"].get(k["key"])
+            stat = run["stats"].get(k["key"], {})
             table.add_row(
                 f"[dim]{k['key']}[/dim]", str(k["points"]), str(k["last_step"]),
-                f"{last:.6g}" if last is not None else "-",
+                fmt(run["summary"].get(k["key"])), fmt(stat.get("min")), fmt(stat.get("max")),
             )
         console.print(table)
     media = store.list_media(run_id)

@@ -153,6 +153,8 @@ def init(
     name: str | None = None,
     config: dict[str, Any] | None = None,
     *,
+    id: str | None = None,
+    resume: bool | str = False,
     total_steps: int | None = None,
     directory: str | os.PathLike | None = None,
     remote: str | bool | None = None,
@@ -163,6 +165,12 @@ def init(
     `total_steps=` declares the training length so the dashboard can estimate an
     ETA: progress then tracks the latest `log(step=...)` automatically. For other
     units (epochs, samples) call `run.set_progress(current, total)` instead.
+
+    `id=` sets the run id (otherwise random). `resume=` continues an existing run
+    under that id — `True`/`"allow"` reopens it if present (else starts fresh),
+    `"must"` errors if it's missing; a fresh `id=` that already exists errors
+    unless `resume` is set. A resumed run flips back to `running` and its auto
+    step counter continues past the last logged step (its original config is kept).
 
     `remote=` / `PANDM_REMOTE` -> remote-only; saved `pandm login` credentials
     -> dual-write (local + sync); `remote=False` / `PANDM_NO_SYNC` -> local-only.
@@ -182,7 +190,10 @@ def init(
         backend = DualBackend(resolve_dir(directory), resolved.url, resolved.api_key)  # type: ignore[arg-type]
     else:
         backend = LocalStore(resolve_dir(directory))
-    run = Run(backend, project=project, name=name, config=config or {}, total_steps=total_steps)
+    run = Run(
+        backend, project=project, name=name, config=config or {},
+        total_steps=total_steps, run_id=id, resume=resume,
+    )
     _active_runs.append(run)
     _register_atexit()
     return run
@@ -222,8 +233,10 @@ class Run:
         name: str | None,
         config: dict[str, Any],
         total_steps: int | None = None,
+        run_id: str | None = None,
+        resume: bool | str = False,
     ):
-        self.id = new_run_id()
+        self.id = run_id or new_run_id()
         self.project = project
         self.name = name or _generate_name()
         self.config = dict(config)
@@ -238,7 +251,22 @@ class Run:
         self._progress_current: float | None = None
         self._progress_total: float | None = float(total_steps) if total_steps else None
         self._progress_dirty = False
+        # resume: "allow" reopens an existing run (else fresh); "must" requires it;
+        # False refuses to reuse an existing id. The auto step counter continues
+        # past the last logged step so a resumed loop doesn't overwrite history.
+        mode = resume if isinstance(resume, str) else ("allow" if resume else False)
+        if mode == "never":
+            mode = False
+        existed = bool(run_id) and backend.run_exists(self.id)
+        if existed and not mode:
+            raise ValueError(
+                f"run {self.id!r} already exists — pass resume=True to continue it, or use a new id"
+            )
+        if mode == "must" and not existed:
+            raise ValueError(f"resume='must' but run {self.id!r} was not found")
         backend.create_run(self.id, project, self.name, self.config)
+        if existed and mode:
+            self._step = int(backend.resume_run(self.id)) + 1
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._flush_loop, daemon=True, name=f"pandm-{self.id}")
         self._thread.start()

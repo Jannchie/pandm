@@ -56,6 +56,7 @@ def cmd_runs(store: "LocalStore", args: argparse.Namespace) -> None:
                 "progress_total": r["progress_total"],
                 "config": r["config"],
                 "summary": r["summary"],  # latest value per metric key
+                "stats": r["stats"],  # per key: {min, max, last, count}
             }
             for r in store.list_runs(args.project)
         ]
@@ -88,6 +89,8 @@ def cmd_compare(store: "LocalStore", args: argparse.Namespace) -> None:
             # each row: a config/metric key -> one value per run, in the same order as "runs"
             "config": {k: [r["config"].get(k) for r in runs] for k in config_keys},
             "summary": {k: [r["summary"].get(k) for r in runs] for k in metric_keys},
+            # stats[key][i] = {min, max, last, count} for run i — pick the best by min/max
+            "stats": {k: [r["stats"].get(k) for r in runs] for k in metric_keys},
         }
     )
 

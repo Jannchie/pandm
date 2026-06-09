@@ -50,6 +50,22 @@ pandm delete <run_id>             # local + cloud copy when signed in
 
 Data lives in `./.pandm` by default; override with `--dir` or `PANDM_DIR`.
 
+### Resuming a run
+
+Give a run a stable `id` and pass `resume=True` to continue it after a crash, a
+preemption (spot/OOM), or a manual restart — the run flips back to `running` and
+its step counter picks up past the last logged step instead of starting a second,
+disconnected run. Its original config is kept.
+
+```python
+run = pandm.init(project="mnist", id="exp-42", resume=True)  # continue if it exists, else start fresh
+# resume="must" errors if exp-42 is missing; a fresh id that already exists errors unless resume is set
+```
+
+`pandm show` reports `MIN`/`MAX` per metric next to the last value (and the read
+API carries a `stats` field — `{min, max, last, count}` per key — so the
+dashboard and `pandm-inspect` can pick the best run, not just the latest value).
+
 ### Hugging Face Accelerate
 
 Pass a `PandmTracker` instance to `Accelerator` (Accelerate only resolves strings for its built-in trackers) — `accelerator.log` then reports to pandm, and `end_training` finishes the run:
@@ -112,7 +128,7 @@ Without OAuth env vars the server falls back to single-tenant mode — `pandm se
 
 | | |
 |---|---|
-| `pandm.init(project, name=None, config=None, *, directory=None, remote=None, api_key=None)` | start a run |
+| `pandm.init(project, name=None, config=None, *, id=None, resume=False, total_steps=None, directory=None, remote=None, api_key=None)` | start (or resume) a run |
 | `run.log(metrics, step=None)` | log scalar metrics |
 | `run.log_image(key, image, step=None, caption=None)` | log an image |
 | `run.finish(status="finished")` | end the run (also via `atexit`) |

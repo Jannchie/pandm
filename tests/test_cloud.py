@@ -587,3 +587,50 @@ def test_init_offer_suppressed_by_env(fresh_config, monkeypatch):
 
     monkeypatch.delenv("PANDM_SILENT")
     assert sdk._maybe_offer_login(Remote("local", None, None), False, None) == Remote("local", None, None)
+
+
+# ----------------------------------------------------- resume + stats over the wire
+
+
+def test_stats_in_read_api(local_dir, server):
+    client, transport = server
+    run = _drain_run(local_dir, transport, n_steps=4, with_image=False)  # loss 4,3,2,1
+    detail = client.get(f"/api/runs/{run.id}").json()
+    assert detail["summary"]["loss"] == 1.0  # last
+    assert detail["stats"]["loss"] == {"min": 1.0, "max": 4.0, "count": 4, "last": 1.0}
+    # list endpoint carries stats too
+    listed = client.get("/api/runs", params={"project": "proj"}).json()
+    assert listed[0]["stats"]["loss"]["max"] == 4.0
+
+
+def test_resume_endpoint_flips_status(local_dir, server):
+    client, transport = server
+    run = _drain_run(local_dir, transport, n_steps=3, with_image=False)
+    assert client.get(f"/api/runs/{run.id}").json()["status"] == "finished"
+
+    resumed = client.post(f"/api/runs/{run.id}/resume").json()
+    assert resumed["max_step"] == 2
+    assert client.get(f"/api/runs/{run.id}").json()["status"] == "running"
+
+
+def test_remote_backend_resume(server):
+    client, transport = server
+    remote = RemoteBackend(SERVER_URL, transport=transport)
+    assert remote.run_exists("missing") is False  # a 404 is "absent", not an outage
+
+    remote.create_run("rr000001", "p", "n", {})
+    client.post("/api/runs/rr000001/metrics", json={"rows": [{"key": "loss", "step": 7, "value": 1.0, "ts": 1.0}]})
+    assert remote.run_exists("rr000001") is True
+    assert remote.resume_run("rr000001") == 7
+
+
+def test_dual_resume_flips_local_and_remote(local_dir, server):
+    client, transport = server
+    run = _drain_run(local_dir, transport, n_steps=3, with_image=False)
+    assert client.get(f"/api/runs/{run.id}").json()["status"] == "finished"
+
+    backend = DualBackend(local_dir, SERVER_URL, None, transport=transport)
+    assert backend.run_exists(run.id) is True
+    assert backend.resume_run(run.id) == 2
+    assert LocalStore(local_dir).get_run(run.id)["status"] == "running"  # type: ignore[index]  # local flipped
+    assert client.get(f"/api/runs/{run.id}").json()["status"] == "running"  # remote flipped too
