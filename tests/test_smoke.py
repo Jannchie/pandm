@@ -138,6 +138,23 @@ def test_ingest_api_with_key(data_dir):
     assert client.get(f"/api/runs/{run_id}").status_code == 404
 
 
+def test_delete_project_removes_all_runs(data_dir):
+    client = TestClient(create_app(data_dir, api_key="sekrit"))
+    headers = {"x-api-key": "sekrit"}
+    for i in range(3):
+        client.post("/api/runs", json={"id": f"r{i}", "project": "doomed", "name": f"n{i}"}, headers=headers)
+    client.post("/api/runs", json={"id": "keep", "project": "other", "name": "n"}, headers=headers)
+
+    # delete requires a key
+    assert client.delete("/api/projects/doomed").status_code == 401
+    assert client.delete("/api/projects/doomed", headers=headers).json()["deleted"] is True
+
+    projects = {p["project"] for p in client.get("/api/projects").json()}
+    assert projects == {"other"}
+    assert client.get("/api/runs/r0").status_code == 404
+    assert client.get("/api/runs/keep").status_code == 200
+
+
 def test_uncaught_exception_marks_crashed(data_dir, tmp_path):
     script = tmp_path / "boom.py"
     script.write_text(

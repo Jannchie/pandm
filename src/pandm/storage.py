@@ -301,6 +301,21 @@ class LocalStore:
             self._db.commit()
         shutil.rmtree(self.media_root / run_id, ignore_errors=True)
 
+    def delete_project(self, project: str, user_id: int | None = None) -> None:
+        where = "project = ?" + (" AND user_id = ?" if user_id is not None else "")
+        params = (project, user_id) if user_id is not None else (project,)
+        with self._lock:
+            run_ids = [
+                r["id"] for r in self._db.execute(f"SELECT id FROM runs WHERE {where}", params).fetchall()
+            ]
+            for run_id in run_ids:
+                self._db.execute("DELETE FROM metrics WHERE run_id = ?", (run_id,))
+                self._db.execute("DELETE FROM media WHERE run_id = ?", (run_id,))
+            self._db.execute(f"DELETE FROM runs WHERE {where}", params)
+            self._db.commit()
+        for run_id in run_ids:
+            shutil.rmtree(self.media_root / run_id, ignore_errors=True)
+
     # -------------------------------------------------------------- reads
 
     def list_projects(self, user_id: int | None = None) -> list[dict[str, Any]]:

@@ -211,6 +211,28 @@ export async function deleteRun(db: D1Database, runId: string): Promise<string[]
   return results.map((r) => r.filename) // caller removes the R2 objects
 }
 
+/** Delete every run in a project (and their children). Returns R2 media keys to remove. */
+export async function deleteProject(db: D1Database, userId: number, project: string): Promise<string[]> {
+  const { results: runs } = await db
+    .prepare('SELECT id FROM runs WHERE user_id = ?1 AND project = ?2')
+    .bind(userId, project)
+    .all<{ id: string }>()
+  if (runs.length === 0) return []
+  const runIds = runs.map((r) => r.id)
+  const placeholders = runIds.map((_, i) => `?${i + 1}`).join(',')
+  const { results: media } = await db
+    .prepare(`SELECT run_id, filename FROM media WHERE run_id IN (${placeholders})`)
+    .bind(...runIds)
+    .all<{ run_id: string; filename: string }>()
+  await db.batch([
+    db.prepare(`DELETE FROM metrics WHERE run_id IN (${placeholders})`).bind(...runIds),
+    db.prepare(`DELETE FROM media WHERE run_id IN (${placeholders})`).bind(...runIds),
+    db.prepare(`DELETE FROM sync_progress WHERE run_id IN (${placeholders})`).bind(...runIds),
+    db.prepare('DELETE FROM runs WHERE user_id = ?1 AND project = ?2').bind(userId, project),
+  ])
+  return media.map((m) => `media/${m.run_id}/${m.filename}`) // caller removes the R2 objects
+}
+
 export const heartbeat = (db: D1Database, runId: string) =>
   db.prepare("UPDATE runs SET updated_at = ?1 WHERE id = ?2 AND status = 'running'").bind(now(), runId).run()
 

@@ -231,6 +231,11 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
         store.delete_run(run_id)
         return {"deleted": True}
 
+    @app.delete("/api/projects/{project:path}")
+    def delete_project(project: str, user: dict | None = Depends(require_key)) -> dict[str, bool]:
+        store.delete_project(project, user_id=user["id"] if user else None)
+        return {"deleted": True}
+
     # ------------------------------------------------------- dashboard
 
     if (STATIC_DIR / "index.html").is_file():

@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { rotateApiKey } from '../api'
 import { runColor } from '../colors'
-import { anyRunning, selectAll, selectNone, selectRun, setProject, signOut, state, toggleLive } from '../store'
+import { anyRunning, removeProject, selectAll, selectNone, selectRun, setProject, signOut, state, toggleLive } from '../store'
 
 const projOpen = ref(false)
 const runsOpen = ref(false)
@@ -12,6 +12,11 @@ const copied = ref(false)
 function pickProject(project: string) {
   projOpen.value = false
   setProject(project)
+}
+
+function confirmDeleteProject(project: string, runs: number) {
+  if (window.confirm(`Delete project "${project}" and all ${runs} run(s), including media? This cannot be undone.`))
+    removeProject(project)
 }
 
 const runsLabel = computed(() => {
@@ -82,16 +87,31 @@ async function rotateKey() {
         v-if="projOpen"
         class="absolute left-0 top-full mt-1 w-56 max-h-90 overflow-y-auto bg-panel border border-border shadow-2xl z-50 py-1"
       >
-        <button
+        <div
           v-for="p in state.projects"
           :key="p.project"
-          class="w-full text-left flex items-center px-3 py-1.5 text-[12.5px] transition-colors cursor-pointer"
+          class="group flex items-center px-3 py-1.5 text-[12.5px] transition-colors cursor-pointer"
           :class="p.project === state.project ? 'text-fg bg-elev/70' : 'text-fg-mut hover:bg-elev/40 hover:text-fg'"
           @click="pickProject(p.project)"
         >
           <span class="truncate">{{ p.project }}</span>
-          <span class="ml-auto pl-3 text-[11px] text-fg-dim shrink-0">{{ p.runs }}</span>
-        </button>
+          <span class="ml-auto pl-3 text-[11px] text-fg-dim shrink-0 group-hover:hidden">{{ p.runs }}</span>
+          <button
+            class="ml-auto pl-3 hidden group-hover:block text-fg-dim hover:text-err transition-colors shrink-0 cursor-pointer"
+            title="Delete project"
+            @click.stop="confirmDeleteProject(p.project, p.runs)"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
         <div v-if="state.projects.length === 0" class="px-3 py-4 text-center text-[12px] text-fg-dim">
           No projects yet
         </div>

@@ -155,6 +155,21 @@ describe('media via R2', () => {
     expect((await api('/api/runs/del00001', { headers: keyOf(alice) })).status).toBe(404)
     expect(await env.MEDIA.get(`media/del00001/${filename}`)).toBeNull()
   })
+
+  it('deleting a project removes its runs and R2 objects, scoped per user', async () => {
+    await post('/api/runs', { id: 'dpa00001', project: 'doomed', name: 'a' }, keyOf(alice))
+    await post('/api/runs', { id: 'dpa00002', project: 'doomed', name: 'b' }, keyOf(alice))
+    const { filename } = (await (await upload('dpa00001')).json()) as any
+    // bob's same-named project must survive alice's delete
+    await post('/api/runs', { id: 'dpb00001', project: 'doomed', name: 'b' }, keyOf(bob))
+
+    await api('/api/projects/doomed', { method: 'DELETE', headers: keyOf(alice) })
+
+    expect((await api('/api/runs/dpa00001', { headers: keyOf(alice) })).status).toBe(404)
+    expect((await api('/api/runs/dpa00002', { headers: keyOf(alice) })).status).toBe(404)
+    expect(await env.MEDIA.get(`media/dpa00001/${filename}`)).toBeNull()
+    expect((await api('/api/runs/dpb00001', { headers: keyOf(bob) })).status).toBe(200)
+  })
 })
 
 describe('github oauth', () => {

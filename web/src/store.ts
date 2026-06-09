@@ -76,6 +76,13 @@ export async function removeRun(id: string) {
   refresh()
 }
 
+export async function removeProject(project: string) {
+  await api.deleteProject(project)
+  for (const r of state.runs) if (r.project === project) clearEta(r.id)
+  if (state.project === project) state.project = '' // refresh() falls back to the next project
+  await refresh()
+}
+
 export async function refresh() {
   try {
     const [projects, runs] = await Promise.all([api.fetchProjects(), api.fetchRuns(state.project || undefined)])

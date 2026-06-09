@@ -249,6 +249,13 @@ app.delete('/api/runs/:id', async (c) => {
   return c.json({ deleted: true })
 })
 
+app.delete('/api/projects/:name', async (c) => {
+  const project = c.req.param('name')
+  const keys = await db.deleteProject(c.env.DB, c.get('user').id, project)
+  for (let i = 0; i < keys.length; i += 1000) await c.env.MEDIA.delete(keys.slice(i, i + 1000))
+  return c.json({ deleted: true })
+})
+
 // --------------------------------------------------------------------- auth
 
 app.get('/api/auth/login', async (c) => {

@@ -100,3 +100,9 @@ export async function deleteRun(runId: string): Promise<void> {
   const resp = await fetch(`/api/runs/${runId}`, { method: 'DELETE' })
   if (!resp.ok) throw new HttpError(resp.status, `/api/runs/${runId}`)
 }
+
+export async function deleteProject(project: string): Promise<void> {
+  const url = `/api/projects/${encodeURIComponent(project)}`
+  const resp = await fetch(url, { method: 'DELETE' })
+  if (!resp.ok) throw new HttpError(resp.status, url)
+}
