@@ -19,7 +19,7 @@ import pandm
 
 run = pandm.init(
     project="mnist",
-    name="baseline",                       # optional; a random name is generated if omitted
+    name="baseline",                       # optional; defaults to a timestamp, e.g. 2026-06-10_14:30:52
     config={"lr": 1e-3, "batch_size": 64}, # hyperparameters — anything JSON-able
     total_steps=1000,                      # optional; lets the dashboard show an ETA
 )

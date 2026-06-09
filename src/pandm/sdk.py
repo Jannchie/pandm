@@ -19,7 +19,6 @@ import atexit
 import io
 import math
 import os
-import random
 import sys
 import threading
 import time
@@ -32,17 +31,6 @@ _FLUSH_INTERVAL = 0.5
 _FLUSH_THRESHOLD = 256
 _HEARTBEAT_INTERVAL = 15.0  # keep updated_at fresh even when nothing is logged
 
-_ADJECTIVES = (
-    "amber", "brisk", "calm", "dapper", "eager", "fuzzy", "gentle", "hazy",
-    "ivory", "jolly", "keen", "lunar", "mellow", "nimble", "opal", "plucky",
-    "quiet", "rustic", "swift", "tidal", "vivid", "wistful", "zesty",
-)
-_NOUNS = (
-    "aurora", "breeze", "comet", "dune", "ember", "fjord", "glade", "harbor",
-    "iris", "jade", "koi", "lagoon", "meadow", "nebula", "orchid", "pine",
-    "quartz", "river", "summit", "thicket", "umbra", "valley", "willow",
-)
-
 _active_runs: list["Run"] = []
 _atexit_registered = False
 _crashed = False  # set by the excepthook so atexit knows how the process died
@@ -50,7 +38,9 @@ _login_offered = False  # one login offer per process, however many init() calls
 
 
 def _generate_name() -> str:
-    return f"{random.choice(_ADJECTIVES)}-{random.choice(_NOUNS)}-{random.randint(1, 99)}"
+    """Default run name: a sortable local timestamp like 2026-06-10_14:30:52.
+    Pass name= to override. (Runs are still uniquely keyed by their id.)"""
+    return time.strftime("%Y-%m-%d_%H:%M:%S")
 
 
 def _register_atexit() -> None:
