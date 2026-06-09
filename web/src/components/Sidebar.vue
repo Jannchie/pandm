@@ -69,8 +69,8 @@ function confirmDelete(run: Run) {
     :class="state.sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
     :style="asideStyle"
   >
-    <!-- search (h-9 matches the main tab bar so the border lines align) -->
-    <div class="relative h-9 shrink-0 border-b border-border">
+    <!-- search (37px = 36px row + 1px border, so content height and border line match the main tab bar) -->
+    <div class="relative h-[37px] shrink-0 border-b border-border">
       <svg
         width="13"
         height="13"

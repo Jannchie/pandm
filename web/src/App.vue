@@ -28,7 +28,7 @@ onMounted(() => bootstrap())
       <Sidebar />
       <main class="flex-1 min-w-0 flex flex-col">
         <!-- tab bar + per-tab controls -->
-        <div class="flex flex-col md:flex-row md:items-center border-b border-border shrink-0">
+        <div class="flex flex-col h-[37px] md:flex-row md:items-center border-b border-border shrink-0">
           <!-- tabs: own row on mobile -->
           <div class="flex items-center px-2 h-9 shrink-0 border-b border-border md:border-b-0">
             <button
