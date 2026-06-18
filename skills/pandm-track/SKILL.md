@@ -19,7 +19,7 @@ import pandm
 
 run = pandm.init(
     project="mnist",
-    name="baseline",                       # optional; defaults to a timestamp, e.g. 2026-06-10_14:30:52
+    name="lr1e-3-bs64",                    # recommended: a short name that says what's unique about this run (see Naming below)
     config={"lr": 1e-3, "batch_size": 64}, # hyperparameters — anything JSON-able
     total_steps=1000,                      # optional; lets the dashboard show an ETA
 )
@@ -55,6 +55,15 @@ passing the `run` object around is awkward.
 
 ## Behaviour that matters
 
+- **Name every run distinctively.** Omit `name=` and pandm falls back to a
+  timestamp (`2026-06-10_14:30:52`) — unique, but unreadable once a handful of
+  runs sit side by side in the dashboard. You know what this run is *for*, so say
+  it: pass a short name that captures what sets this run apart from its siblings —
+  the swept knob (`lr-3e-4`, `bs-128`), the variant (`resnet50-aug`, `no-warmup`),
+  or the intent (`fix-grad-clip`). Re-running the same config? Append a short
+  suffix (`lr-3e-4-v2`) so the two don't read identically. Runs are keyed by id,
+  not name, so collisions are legal — but the dashboard lists by name, so they
+  cost you at a glance.
 - **`step` is optional.** Omit it and pandm uses a per-run counter that advances
   by one per `log()` call. If you pass `step`, keep it monotonic per key — the
   dashboard plots against it.
