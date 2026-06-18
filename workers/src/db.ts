@@ -39,7 +39,18 @@ const STALE_AFTER = 60.0
 
 const now = () => Date.now() / 1000
 
-export function runToDict(row: RunRow, summary: Record<string, number> = {}) {
+export interface MetricStats {
+  min: number
+  max: number
+  count: number
+  last: number | null
+}
+
+export function runToDict(
+  row: RunRow,
+  summary: Record<string, number> = {},
+  stats: Record<string, MetricStats> = {},
+) {
   let status = row.status
   if (status === 'running' && now() - row.updated_at > STALE_AFTER) status = 'crashed'
   return {
@@ -56,6 +67,7 @@ export function runToDict(row: RunRow, summary: Record<string, number> = {}) {
     progress_total: row.progress_total,
     progress_ts: row.progress_ts,
     summary,
+    stats,
   }
 }
 
@@ -144,22 +156,61 @@ export async function listProjects(db: D1Database, userId: number) {
   return results
 }
 
+/** D1 caps bound parameters at 100 per query, so IN(...) id lists must be chunked. */
+const D1_MAX_PARAMS = 100
+const chunk = <T>(arr: T[], size: number): T[][] => {
+  const out: T[][] = []
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+  return out
+}
+
 /** Latest logged value per (run, key) — same MAX(rowid) trick as LocalStore. */
 async function summaries(db: D1Database, runIds: string[]): Promise<Record<string, Record<string, number>>> {
-  if (runIds.length === 0) return {}
-  const placeholders = runIds.map((_, i) => `?${i + 1}`).join(',')
-  const { results } = await db
-    .prepare(
-      `SELECT m.run_id, m.key, m.value FROM metrics m
-       JOIN (
-         SELECT run_id, key, MAX(rowid) AS mr FROM metrics
-         WHERE run_id IN (${placeholders}) GROUP BY run_id, key
-       ) t ON m.rowid = t.mr`,
-    )
-    .bind(...runIds)
-    .all<{ run_id: string; key: string; value: number }>()
   const out: Record<string, Record<string, number>> = {}
-  for (const r of results) (out[r.run_id] ??= {})[r.key] = r.value
+  for (const batch of chunk(runIds, D1_MAX_PARAMS)) {
+    const placeholders = batch.map((_, i) => `?${i + 1}`).join(',')
+    const { results } = await db
+      .prepare(
+        `SELECT m.run_id, m.key, m.value FROM metrics m
+         JOIN (
+           SELECT run_id, key, MAX(rowid) AS mr FROM metrics
+           WHERE run_id IN (${placeholders}) GROUP BY run_id, key
+         ) t ON m.rowid = t.mr`,
+      )
+      .bind(...batch)
+      .all<{ run_id: string; key: string; value: number }>()
+    for (const r of results) (out[r.run_id] ??= {})[r.key] = r.value
+  }
+  return out
+}
+
+/** Per-(run, key) aggregates min/max/count + last (latest logged value). Mirrors
+ *  LocalStore._stats so the dashboard's MetricsPanel can list a run's metric keys
+ *  (it reads `run.stats`). `last` comes from the latest-value `summaries` query. */
+async function metricStats(
+  db: D1Database,
+  runIds: string[],
+  last: Record<string, Record<string, number>>,
+): Promise<Record<string, Record<string, MetricStats>>> {
+  const out: Record<string, Record<string, MetricStats>> = {}
+  for (const batch of chunk(runIds, D1_MAX_PARAMS)) {
+    const placeholders = batch.map((_, i) => `?${i + 1}`).join(',')
+    const { results } = await db
+      .prepare(
+        `SELECT run_id, key, MIN(value) AS min, MAX(value) AS max, COUNT(*) AS count
+         FROM metrics WHERE run_id IN (${placeholders}) GROUP BY run_id, key`,
+      )
+      .bind(...batch)
+      .all<{ run_id: string; key: string; min: number; max: number; count: number }>()
+    for (const r of results) {
+      ;(out[r.run_id] ??= {})[r.key] = {
+        min: r.min,
+        max: r.max,
+        count: r.count,
+        last: last[r.run_id]?.[r.key] ?? null,
+      }
+    }
+  }
   return out
 }
 
@@ -187,14 +238,21 @@ export async function listRuns(db: D1Database, userId: number, project: string |
     : db.prepare('SELECT * FROM runs WHERE user_id = ?1 ORDER BY created_at DESC').bind(userId)
   const { results } = await stmt.all<RunRow>()
   const backfilled = await backfillSummaries(db, results)
-  return results.map((r) => runToDict(r, r.summary !== null ? JSON.parse(r.summary) : (backfilled[r.id] ?? {})))
+  const ids = results.map((r) => r.id)
+  const last = await summaries(db, ids)
+  const stats = await metricStats(db, ids, last)
+  return results.map((r) =>
+    runToDict(r, r.summary !== null ? JSON.parse(r.summary) : (backfilled[r.id] ?? {}), stats[r.id] ?? {}),
+  )
 }
 
 export async function getRun(db: D1Database, runId: string, userId: number) {
   const row = await db.prepare('SELECT * FROM runs WHERE id = ?1').bind(runId).first<RunRow>()
   if (!row || row.user_id !== userId) return null // foreign run is indistinguishable from absent
   const backfilled = await backfillSummaries(db, [row])
-  return runToDict(row, row.summary !== null ? JSON.parse(row.summary) : (backfilled[runId] ?? {}))
+  const last = await summaries(db, [runId])
+  const stats = await metricStats(db, [runId], last)
+  return runToDict(row, row.summary !== null ? JSON.parse(row.summary) : (backfilled[runId] ?? {}), stats[runId] ?? {})
 }
 
 export async function deleteRun(db: D1Database, runId: string): Promise<string[]> {

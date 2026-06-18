@@ -112,6 +112,31 @@ describe('metrics ingest & watermark', () => {
     const run = (await (await api('/api/runs/sum00001', { headers: keyOf(alice) })).json()) as any
     expect(run.summary.acc).toBe(0.9)
   })
+
+  it('exposes per-key stats on runs (dashboard lists metrics from run.stats)', async () => {
+    await post('/api/runs', { id: 'stat0001', project: 'p', name: 'st' }, keyOf(alice))
+    await post(
+      '/api/runs/stat0001/metrics',
+      { rows: [{ key: 'loss', step: 0, value: 1.0, ts: 1 }, { key: 'loss', step: 1, value: 0.2, ts: 2 }] },
+      keyOf(alice),
+    )
+    // both the single-run endpoint and the list endpoint must carry stats
+    const run = (await (await api('/api/runs/stat0001', { headers: keyOf(alice) })).json()) as any
+    expect(run.stats.loss).toEqual({ min: 0.2, max: 1.0, count: 2, last: 0.2 })
+    const list = (await (await api('/api/runs?project=p', { headers: keyOf(alice) })).json()) as any[]
+    expect(list.find((r) => r.id === 'stat0001').stats.loss.count).toBe(2)
+  })
+
+  it('lists more than 100 runs without exceeding D1 bound-parameter limit', async () => {
+    const carol = await upsertUser(env.DB, 3, 'carol', 'Carol', null)
+    for (let i = 0; i < 105; i++) {
+      const id = `bulk${String(i).padStart(4, '0')}`
+      await post('/api/runs', { id, project: 'bulk', name: id }, keyOf(carol))
+    }
+    const res = await api('/api/runs?project=bulk', { headers: keyOf(carol) })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as any[]).length).toBe(105)
+  })
 })
 
 describe('media via R2', () => {
