@@ -56,6 +56,7 @@ class FinishIn(BaseModel):
     status: str = "finished"
     finished_at: float | None = None
     summary: dict[str, Any] | None = None  # author scalars, sent with the run's terminal state
+    metric_meta: dict[str, Any] | None = None  # per-metric display specs (run.define_metric)
 
 
 def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = None) -> FastAPI:
@@ -217,6 +218,8 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
         check_owner(run_id, user)
         if body.summary:
             store.set_summary(run_id, body.summary)
+        if body.metric_meta:
+            store.set_metric_meta(run_id, body.metric_meta)
         store.finish_run(run_id, body.status, body.finished_at)
         return {"status": body.status}
 

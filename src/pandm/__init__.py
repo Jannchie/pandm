@@ -2,7 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from .sdk import Run, finish, init, log, log_image, summary
+from .sdk import Run, define_metric, finish, init, log, log_image, summary
 
 try:
     # single source of truth is pyproject.toml; read it back from package metadata
@@ -10,4 +10,4 @@ try:
 except PackageNotFoundError:  # running from a source tree that was never installed
     __version__ = "0.0.0+unknown"
 
-__all__ = ["init", "log", "log_image", "summary", "finish", "Run", "__version__"]
+__all__ = ["init", "log", "log_image", "summary", "define_metric", "finish", "Run", "__version__"]

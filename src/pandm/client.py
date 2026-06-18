@@ -58,6 +58,7 @@ class RemoteBackend:
         self._created = False
         self._create_payload: dict[str, Any] | None = None
         self._summary: dict[str, Any] = {}  # author scalars, sent with finish (§ no separate endpoint)
+        self._metric_meta: dict[str, Any] = {}  # per-metric display specs, also sent with finish
 
     @contextlib.contextmanager
     def deadline(self, budget: float) -> Iterator[None]:
@@ -204,15 +205,29 @@ class RemoteBackend:
         self._summary.update(values)
         return True
 
+    def set_metric_meta(self, run_id: str, specs: dict[str, Any]) -> bool:
+        """Stash per-metric display specs; like summary they ride along with finish_run
+        rather than needing their own endpoint."""
+        self._metric_meta.update(specs)
+        return True
+
     def finish_run(
-        self, run_id: str, status: str, finished_at: float, summary: dict[str, Any] | None = None
+        self,
+        run_id: str,
+        status: str,
+        finished_at: float,
+        summary: dict[str, Any] | None = None,
+        metric_meta: dict[str, Any] | None = None,
     ) -> bool:
         if not self._ensure_created():
             return False
-        # remote-only stashes via set_summary; dual/sync pass the local row explicitly
+        # remote-only stashes via set_*; dual/sync pass the local row explicitly
         summary = summary if summary is not None else self._summary
+        metric_meta = metric_meta if metric_meta is not None else self._metric_meta
         body: dict[str, Any] = {"status": status, "finished_at": finished_at}
         if summary:
             body["summary"] = summary
+        if metric_meta:
+            body["metric_meta"] = metric_meta
         resp = self._request("POST", f"/api/runs/{run_id}/finish", json=body)
         return resp is not None

@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS runs (
     -- author-written run-level scalars (run.summary({...})): the self-consistent
     -- metric row of the chosen checkpoint, which per-key stats can't reconstruct
     summary        TEXT NOT NULL DEFAULT '{}',
+    -- per-metric display specs (run.define_metric(...)): {key: {min,max,unit,goal,
+    -- baseline}} — tells the dashboard how to render a metric (fixed axis, percent,
+    -- baseline line, which direction is "better"). Author-declared, never inferred.
+    metric_meta    TEXT NOT NULL DEFAULT '{}',
     created_at     REAL NOT NULL,
     updated_at     REAL NOT NULL,
     finished_at    REAL,
@@ -118,6 +122,7 @@ def _run_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "status": row["status"],
         "config": json.loads(row["config"]),
         "summary": json.loads(row["summary"]),
+        "metric_meta": json.loads(row["metric_meta"]),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "finished_at": row["finished_at"],
@@ -156,6 +161,8 @@ class LocalStore:
                 self._db.execute(f"ALTER TABLE runs ADD COLUMN {col} REAL")
         if "summary" not in cols:
             self._db.execute("ALTER TABLE runs ADD COLUMN summary TEXT NOT NULL DEFAULT '{}'")
+        if "metric_meta" not in cols:
+            self._db.execute("ALTER TABLE runs ADD COLUMN metric_meta TEXT NOT NULL DEFAULT '{}'")
         self._db.execute("CREATE INDEX IF NOT EXISTS idx_runs_user ON runs (user_id)")
 
     def close(self) -> None:
@@ -264,6 +271,24 @@ class LocalStore:
             merged.update(values)
             self._db.execute(
                 "UPDATE runs SET summary = ? WHERE id = ?",
+                (json.dumps(merged, default=str), run_id),
+            )
+            self._db.commit()
+
+    def set_metric_meta(self, run_id: str, specs: dict[str, Any]) -> None:
+        """Merge per-metric display specs (last write wins per key). Declared once
+        via run.define_metric, this just tells the dashboard how to draw a metric —
+        it never touches the time series."""
+        if not specs:
+            return
+        with self._lock:
+            row = self._db.execute("SELECT metric_meta FROM runs WHERE id = ?", (run_id,)).fetchone()
+            if row is None:
+                return
+            merged = json.loads(row["metric_meta"] or "{}")
+            merged.update(specs)
+            self._db.execute(
+                "UPDATE runs SET metric_meta = ? WHERE id = ?",
                 (json.dumps(merged, default=str), run_id),
             )
             self._db.commit()

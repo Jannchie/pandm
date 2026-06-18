@@ -281,6 +281,23 @@ describe('run lifecycle', () => {
     expect(run.status).toBe('finished')
     expect(run.finished_at).toBe(2000.0)
   })
+
+  it('attaches per-metric display specs (define_metric) on finish', async () => {
+    await post('/api/runs', { id: 'meta0001', project: 'p', name: 'm' }, keyOf(alice))
+    // default before any define_metric
+    let run = (await (await api('/api/runs/meta0001', { headers: keyOf(alice) })).json()) as any
+    expect(run.metric_meta).toEqual({})
+
+    const spec = { win_rate: { min: 0, max: 1, unit: 'percent', goal: 'max', baseline: 0.5 } }
+    await post('/api/runs/meta0001/finish', { status: 'finished', metric_meta: spec }, keyOf(alice))
+    run = (await (await api('/api/runs/meta0001', { headers: keyOf(alice) })).json()) as any
+    expect(run.metric_meta).toEqual(spec)
+
+    // a later finish without specs must not blank the stored ones
+    await post('/api/runs/meta0001/finish', { status: 'finished' }, keyOf(alice))
+    run = (await (await api('/api/runs/meta0001', { headers: keyOf(alice) })).json()) as any
+    expect(run.metric_meta).toEqual(spec)
+  })
 })
 
 describe('summary materialization', () => {

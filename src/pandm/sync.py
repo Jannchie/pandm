@@ -139,13 +139,14 @@ class Uploader:
         self._thread.join(timeout=budget)
         run = self.store.get_run(self.run_id)
         summary = run["summary"] if run else {}  # author scalars ride along with finish
+        metric_meta = run["metric_meta"] if run else {}  # so do per-metric display specs
         try:
             if not self._thread.is_alive():  # still wedged → leave the tail to `pandm sync`
                 deadline = time.monotonic() + budget
                 with self.remote.deadline(budget):  # bound the requests, not just the loop
                     while time.monotonic() < deadline:
                         if self._pump():
-                            if self.remote.finish_run(self.run_id, status, finished_at, summary):
+                            if self.remote.finish_run(self.run_id, status, finished_at, summary, metric_meta):
                                 self.store.advance_sync_cursor(self.run_id, status_synced=True)
                             break
                         time.sleep(0.2)  # offline backoff; don't spin the deadline away
@@ -214,6 +215,9 @@ class DualBackend:
     def set_summary(self, run_id: str, values: dict[str, Any]) -> None:
         self.local.set_summary(run_id, values)  # remote upload rides along with finish (§ no separate endpoint)
 
+    def set_metric_meta(self, run_id: str, specs: dict[str, Any]) -> None:
+        self.local.set_metric_meta(run_id, specs)  # the uploader reads it from the local row at finish
+
     def finish_run(self, run_id: str, status: str, finished_at: float) -> None:
         self.local.finish_run(run_id, status, finished_at)
         if self._uploader:
@@ -236,7 +240,11 @@ def _sync_one(
             return "server unreachable"
         if run["status"] != "running":
             if remote.finish_run(
-                run_id, run["status"], run["finished_at"] or run["updated_at"], run["summary"]
+                run_id,
+                run["status"],
+                run["finished_at"] or run["updated_at"],
+                run["summary"],
+                run["metric_meta"],
             ):
                 store.advance_sync_cursor(run_id, status_synced=True)
         return "synced"

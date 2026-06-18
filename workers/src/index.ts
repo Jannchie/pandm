@@ -235,8 +235,8 @@ app.post('/api/runs/:id/finish', async (c) => {
   const runId = c.req.param('id')
   const guard = await ownerGuard(c, runId)
   if (guard) return guard
-  const body = await c.req.json<{ status?: string; finished_at?: number }>()
-  await db.finishRun(c.env.DB, runId, body.status ?? 'finished', body.finished_at ?? null)
+  const body = await c.req.json<{ status?: string; finished_at?: number; metric_meta?: Record<string, unknown> }>()
+  await db.finishRun(c.env.DB, runId, body.status ?? 'finished', body.finished_at ?? null, body.metric_meta ?? null)
   return c.json({ status: body.status ?? 'finished' })
 })
 

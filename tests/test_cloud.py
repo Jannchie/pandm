@@ -116,6 +116,26 @@ def test_dual_write_basic(local_dir, server):
     assert local.runs_needing_sync() == []
 
 
+def test_dual_write_carries_metric_meta(local_dir, server):
+    """define_metric specs are declared up front but reach the cloud at finish —
+    the uploader reads them off the local row, like author summary."""
+    client, transport = server
+    backend = DualBackend(local_dir, SERVER_URL, None, transport=transport)
+    run = Run(backend, project="proj", name="dm", config={})
+    run.define_metric("win_rate", unit="percent", goal="max", baseline=0.5)
+    run.log({"win_rate": 0.7})
+    run.finish()
+
+    remote = client.get(f"/api/runs/{run.id}").json()
+    assert remote["metric_meta"]["win_rate"] == {
+        "min": 0.0,
+        "max": 1.0,
+        "unit": "percent",
+        "goal": "max",
+        "baseline": 0.5,
+    }
+
+
 def test_offline_then_backfill(local_dir, server):
     client, transport = server
     flaky = FlakyTransport(transport)

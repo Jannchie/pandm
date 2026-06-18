@@ -209,6 +209,12 @@ def summary(values: dict[str, Any]) -> None:
     _current().summary(values)
 
 
+def define_metric(key: str, **spec: Any) -> None:
+    """Declare a metric's display spec on the most recently started run
+    (mirrors run.define_metric: min, max, unit, goal, baseline)."""
+    _current().define_metric(key, **spec)
+
+
 def finish(status: str = "finished") -> None:
     """Finish the most recently started run."""
     _current().finish(status)
@@ -314,6 +320,50 @@ class Run:
         try:
             self._backend.set_summary(self.id, {str(k): v for k, v in values.items()})
         except Exception:  # noqa: BLE001 — summary is best-effort, never kill training
+            pass
+
+    def define_metric(  # noqa: A002 — min/max name the axis bounds; shadowing the builtins is the clear API
+        self,
+        key: str,
+        *,
+        min: float | None = None,
+        max: float | None = None,
+        unit: str | None = None,
+        goal: str | None = None,
+        baseline: float | None = None,
+    ) -> None:
+        """Declare how the dashboard should render a metric — call once, before the
+        loop. Pins the y-axis to a fixed range, formats it (e.g. as a percentage),
+        draws a baseline reference line, and marks which direction is "better" so the
+        leading run stands out.
+
+            run.define_metric("eval/win_rate", unit="percent", goal="max", baseline=0.5)
+            run.define_metric("acc", min=0, max=1)          # a bounded [0,1] score
+
+        `unit="percent"` defaults the range to 0..1 and shows 0.73 as 73%. `goal` is
+        "max" or "min". `baseline` draws a dashed reference line (e.g. chance level).
+        Locally the spec applies immediately; in cloud mode it is attached when the
+        run finishes. The backend write is best-effort and never interrupts training."""
+        spec: dict[str, Any] = {}
+        if unit == "percent" and min is None and max is None:
+            min, max = 0.0, 1.0
+        if min is not None:
+            spec["min"] = float(min)
+        if max is not None:
+            spec["max"] = float(max)
+        if unit is not None:
+            spec["unit"] = str(unit)
+        if goal is not None:
+            if goal not in ("max", "min"):
+                raise ValueError(f"goal must be 'max' or 'min', got {goal!r}")
+            spec["goal"] = goal
+        if baseline is not None:
+            spec["baseline"] = float(baseline)
+        if not spec:
+            return
+        try:
+            self._backend.set_metric_meta(self.id, {str(key): spec})
+        except Exception:  # noqa: BLE001 — display metadata is best-effort, never kill training
             pass
 
     def log_image(self, key: str, image: Any, step: int | None = None, caption: str | None = None) -> None:

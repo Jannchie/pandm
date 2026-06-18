@@ -359,3 +359,29 @@ def test_finish_ingests_summary(data_dir):
     assert client.post("/api/runs/s1/finish", json=body, headers=headers).status_code == 200
     run = client.get("/api/runs/s1").json()
     assert run["summary"] == {"best/spearman": 0.773, "best/epoch": 7}
+
+
+def test_define_metric_local(data_dir):
+    run = pandm.init(project="p", name="dm", directory=data_dir, remote=False)
+    run.define_metric("eval/win_rate", unit="percent", goal="max", baseline=0.5)
+    run.define_metric("acc", min=0, max=1)  # a bounded [0,1] score
+    with pytest.raises(ValueError):
+        run.define_metric("bad", goal="up")  # goal must be 'max' or 'min'
+    run.log({"eval/win_rate": 0.7, "acc": 0.9})
+    run.finish()
+
+    meta = _get_run(LocalStore(data_dir), run.id)["metric_meta"]
+    assert meta["eval/win_rate"] == {"min": 0.0, "max": 1.0, "unit": "percent", "goal": "max", "baseline": 0.5}
+    assert meta["acc"] == {"min": 0.0, "max": 1.0}  # unit="percent" not set -> just the fixed range
+    assert "bad" not in meta  # the rejected call never reached the store
+
+
+def test_finish_ingests_metric_meta(data_dir):
+    client = TestClient(create_app(data_dir, api_key="k"))
+    headers = {"x-api-key": "k"}
+    client.post("/api/runs", json={"id": "m1", "project": "p", "name": "n"}, headers=headers)
+
+    spec = {"win_rate": {"min": 0, "max": 1, "unit": "percent", "goal": "max", "baseline": 0.5}}
+    body = {"status": "finished", "metric_meta": spec}
+    assert client.post("/api/runs/m1/finish", json=body, headers=headers).status_code == 200
+    assert client.get("/api/runs/m1").json()["metric_meta"] == spec

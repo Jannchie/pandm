@@ -24,6 +24,7 @@ export interface RunRow {
   progress_total: number | null // target; NULL = unknown
   progress_ts: number | null // when progress was last reported
   summary: string | null // materialized {key: lastValue}; NULL = pre-migration row
+  metric_meta: string // author-declared {key: {min,max,unit,goal,baseline}} display specs
 }
 
 export interface MetricIn {
@@ -68,6 +69,7 @@ export function runToDict(
     progress_ts: row.progress_ts,
     summary,
     stats,
+    metric_meta: JSON.parse(row.metric_meta ?? '{}'),
   }
 }
 
@@ -308,8 +310,23 @@ export const updateProgress = (db: D1Database, runId: string, current: number, t
         .bind(current, total, ts, ts, runId)
         .run()
 
-export const finishRun = (db: D1Database, runId: string, status: string, finishedAt: number | null) => {
+export const finishRun = (
+  db: D1Database,
+  runId: string,
+  status: string,
+  finishedAt: number | null,
+  metricMeta?: Record<string, unknown> | null,
+) => {
   const ts = finishedAt ?? now()
+  // metric_meta is declared up front but only reaches the cloud at finish (no
+  // separate endpoint); overwrite with the full author-sent map, skip if empty so
+  // a re-finish can't blank it.
+  if (metricMeta && Object.keys(metricMeta).length > 0) {
+    return db
+      .prepare('UPDATE runs SET status = ?1, finished_at = ?2, updated_at = ?3, metric_meta = ?4 WHERE id = ?5')
+      .bind(status, ts, ts, JSON.stringify(metricMeta), runId)
+      .run()
+  }
   return db
     .prepare('UPDATE runs SET status = ?1, finished_at = ?2, updated_at = ?3 WHERE id = ?4')
     .bind(status, ts, ts, runId)
