@@ -21,6 +21,13 @@ export default defineConfig({
       err: '#f87171',
       warn: '#fbbf24',
     },
+    // whole UI is monospace, but nothing is bundled: prefer a mono the user has
+    // installed (Iosevka first, then Sarasa for matched CJK), else system mono +
+    // system CJK. font-sans and font-mono share the stack so all text matches.
+    fontFamily: {
+      sans: "'Iosevka', 'Sarasa Mono SC', 'JetBrains Mono', 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'PingFang SC', 'Microsoft YaHei', monospace",
+      mono: "'Iosevka', 'Sarasa Mono SC', 'JetBrains Mono', 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'PingFang SC', 'Microsoft YaHei', monospace",
+    },
   },
   shortcuts: {
     card: 'bg-panel border border-border rounded-xl',

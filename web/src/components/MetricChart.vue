@@ -10,6 +10,10 @@ import { getSeries, metricSpec, selectedRuns, state } from '../store'
 
 echarts.use([LineChart, GridComponent, MarkLineComponent, TooltipComponent, CanvasRenderer])
 
+// canvas text doesn't inherit the page font — match the UI's monospace stack
+const FONT =
+  "'Iosevka', 'Sarasa Mono SC', 'JetBrains Mono', 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'PingFang SC', 'Microsoft YaHei', monospace"
+
 const props = defineProps<{ metricKey: string }>()
 
 const el = ref<HTMLDivElement>()
@@ -113,6 +117,7 @@ async function update() {
     {
       animationDuration: 200,
       animationDurationUpdate: 250,
+      textStyle: { fontFamily: FONT },
       grid: { left: 6, right: 14, top: 12, bottom: 2, containLabel: true },
       xAxis: {
         type: state.xAxis === 'time' ? 'time' : 'value',
@@ -141,7 +146,7 @@ async function update() {
         backgroundColor: 'rgba(23,23,28,0.95)',
         borderColor: 'rgba(255,255,255,0.08)',
         padding: [6, 10],
-        textStyle: { color: '#e8e8ec', fontSize: 13 },
+        textStyle: { color: '#e8e8ec', fontSize: 13, fontFamily: FONT },
         extraCssText: 'border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);backdrop-filter:blur(8px)',
         axisPointer: { type: 'line', lineStyle: { color: 'rgba(255,255,255,0.15)' } },
         formatter: (params: unknown) => {
@@ -159,7 +164,7 @@ async function update() {
                 `<div style="display:flex;align-items:center;gap:6px;margin-top:3px;min-width:150px">` +
                 `<span style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:${p.color}"></span>` +
                 `<span style="color:#8f8f9a;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.seriesName)}</span>` +
-                `<span style="margin-left:auto;padding-left:12px;font-family:ui-monospace,SFMono-Regular,monospace">${fmtMetric(p.value[1], spec?.unit)}</span></div>`,
+                `<span style="margin-left:auto;padding-left:12px;font-family:${FONT}">${fmtMetric(p.value[1], spec?.unit)}</span></div>`,
             )
             .join('')
           return `<div style="font-size:12px;color:#5b5b66">${head}</div>${body}`
