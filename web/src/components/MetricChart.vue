@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent } from 'echarts/components'
+import { GridComponent, MarkLineComponent, TooltipComponent } from 'echarts/components'
 import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { runColor } from '../colors'
-import { ema, fmtClock, fmtNum, fmtStep } from '../fmt'
-import { getSeries, selectedRuns, state } from '../store'
+import { ema, fmtClock, fmtMetric, fmtNum, fmtStep } from '../fmt'
+import { getSeries, metricSpec, selectedRuns, state } from '../store'
 
-echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
+echarts.use([LineChart, GridComponent, MarkLineComponent, TooltipComponent, CanvasRenderer])
 
 const props = defineProps<{ metricKey: string }>()
 
@@ -36,8 +36,34 @@ const zip = (xs: number[], ys: number[]) => xs.map((x, i) => [x, ys[i]] as [numb
 async function update() {
   const my = ++token
   const runs = selectedRuns.value
+  const spec = metricSpec(props.metricKey)
   const results = await Promise.all(runs.map((r) => getSeries(r, props.metricKey).catch(() => null)))
   if (my !== token || !chart) return
+
+  // a fixed axis only makes sense on a linear scale; log mode keeps its auto range
+  const fixed = spec && !state.logScale
+  // baseline reference line (e.g. 0.5 chance level), drawn once on the first series
+  const markLine =
+    spec?.baseline !== undefined
+      ? {
+          silent: true,
+          symbol: 'none' as const,
+          animation: false,
+          data: [
+            {
+              yAxis: spec.baseline,
+              label: {
+                formatter: fmtMetric(spec.baseline, spec.unit),
+                position: 'insideEndTop' as const,
+                color: '#8f8f9a',
+                fontSize: 9,
+              },
+              lineStyle: { color: 'rgba(255,255,255,0.22)', type: 'dashed' as const, width: 1 },
+            },
+          ],
+        }
+      : undefined
+  let markLinePlaced = false
 
   const series: object[] = []
   runs.forEach((run, i) => {
@@ -79,6 +105,7 @@ async function update() {
       itemStyle: { color },
       emphasis: { focus: 'none' },
       z: 2,
+      ...(markLine && !markLinePlaced ? ((markLinePlaced = true), { markLine }) : {}),
     })
   })
 
@@ -102,8 +129,10 @@ async function update() {
       },
       yAxis: {
         type: state.logScale ? 'log' : 'value',
-        scale: true,
-        axisLabel: { color: '#5b5b66', fontSize: 10, formatter: (v: number) => fmtNum(v) },
+        scale: !fixed, // a declared range pins the axis; otherwise fit the data
+        min: fixed && spec.min !== undefined ? spec.min : undefined,
+        max: fixed && spec.max !== undefined ? spec.max : undefined,
+        axisLabel: { color: '#5b5b66', fontSize: 10, formatter: (v: number) => fmtMetric(v, spec?.unit) },
         splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
         splitNumber: 4,
       },
@@ -130,7 +159,7 @@ async function update() {
                 `<div style="display:flex;align-items:center;gap:6px;margin-top:3px;min-width:150px">` +
                 `<span style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:${p.color}"></span>` +
                 `<span style="color:#8f8f9a;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.seriesName)}</span>` +
-                `<span style="margin-left:auto;padding-left:12px;font-family:ui-monospace,SFMono-Regular,monospace">${fmtNum(p.value[1])}</span></div>`,
+                `<span style="margin-left:auto;padding-left:12px;font-family:ui-monospace,SFMono-Regular,monospace">${fmtMetric(p.value[1], spec?.unit)}</span></div>`,
             )
             .join('')
           return `<div style="font-size:10.5px;color:#5b5b66">${head}</div>${body}`

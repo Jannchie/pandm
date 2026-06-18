@@ -18,6 +18,7 @@ export interface Run {
   progress_ts: number | null // when progress was last reported
   summary: Record<string, number> // author-written run-level scalars (run.summary({...}))
   stats: Record<string, MetricStats> // per-key aggregates; .last is the latest logged value
+  metric_meta: Record<string, MetricSpec> // author-declared per-metric display specs (run.define_metric)
 }
 
 export interface MetricStats {
@@ -25,6 +26,15 @@ export interface MetricStats {
   max: number
   count: number
   last: number | null
+}
+
+/** How the dashboard should render a metric — declared via run.define_metric. */
+export interface MetricSpec {
+  min?: number // fixed y-axis lower bound
+  max?: number // fixed y-axis upper bound
+  unit?: string // 'percent' -> show 0.73 as 73%, default range 0..1
+  goal?: 'max' | 'min' // which direction is "better" (marks the leading run)
+  baseline?: number // draws a dashed reference line (e.g. chance level)
 }
 
 export interface Series {

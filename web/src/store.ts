@@ -38,6 +38,29 @@ export const visibleRuns = computed(() => {
 
 export const selectedRuns = computed(() => state.runs.filter((r) => state.selected.includes(r.id)))
 
+// a metric's display spec (run.define_metric): the first selected run that declares
+// it wins — specs describe the metric's meaning (win_rate is always 0..1), so runs
+// that bother declaring it should agree.
+export function metricSpec(key: string): api.MetricSpec | null {
+  for (const r of selectedRuns.value) {
+    const spec = r.metric_meta?.[key]
+    if (spec) return spec
+  }
+  return null
+}
+
+// the leading selected run for a spec'd metric, by its declared goal direction —
+// drives the "★ best" badge. Compares the latest logged value (stats[key].last).
+export function bestRunFor(key: string, goal: 'max' | 'min'): { run: api.Run; value: number } | null {
+  let best: { run: api.Run; value: number } | null = null
+  for (const r of selectedRuns.value) {
+    const v = r.stats?.[key]?.last
+    if (v === null || v === undefined) continue
+    if (!best || (goal === 'max' ? v > best.value : v < best.value)) best = { run: r, value: v }
+  }
+  return best
+}
+
 export const anyRunning = computed(() => selectedRuns.value.some((r) => r.status === 'running'))
 
 // plain click = single-select (show only this run); ctrl/cmd-click = toggle into

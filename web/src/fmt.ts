@@ -15,6 +15,17 @@ function trim(v: number, sig = 3): string {
   return Number(v.toPrecision(sig)).toString()
 }
 
+/** 0.7345 -> "73.5%". For metrics declared with unit:"percent". */
+export function fmtPercent(v: number | null | undefined): string {
+  if (v === null || v === undefined || Number.isNaN(v)) return '–'
+  return `${trim(v * 100)}%`
+}
+
+/** Format a value the way its metric was declared (percent-aware), else compact number. */
+export function fmtMetric(v: number | null | undefined, unit?: string): string {
+  return unit === 'percent' ? fmtPercent(v) : fmtNum(v)
+}
+
 export function fmtStep(v: number): string {
   return v.toLocaleString('en-US')
 }

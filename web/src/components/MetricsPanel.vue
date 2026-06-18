@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { selectedRuns, state } from '../store'
+import { runColor } from '../colors'
+import { fmtMetric } from '../fmt'
+import { bestRunFor, metricSpec, selectedRuns, state } from '../store'
 import MetricChart from './MetricChart.vue'
 
 // the runs polling already carries per-key stats — their keys are exactly the
@@ -34,6 +36,26 @@ const gridStyle = computed(() => ({
     ? `repeat(${state.columns}, minmax(0, 1fr))`
     : 'repeat(auto-fill, minmax(min(340px, 100%), 1fr))',
 }))
+
+// header badge for a declared metric: the latest value (percent-aware), and when a
+// goal is declared across several runs, the leading run's value + colour + a ★.
+// Driven by the stats already in hand (stats[key].last) — no extra fetch.
+const badges = computed(() => {
+  const out: Record<string, { value: string; color: string; star: boolean } | null> = {}
+  const multi = selectedRuns.value.length > 1
+  for (const key of unionKeys.value) {
+    const spec = metricSpec(key)
+    if (!spec || (!spec.goal && multi)) {
+      out[key] = null // no spec, or ambiguous which run is "best"
+      continue
+    }
+    const best = bestRunFor(key, spec.goal ?? 'max')
+    out[key] = best
+      ? { value: fmtMetric(best.value, spec.unit), color: runColor(best.run.id), star: !!spec.goal && multi }
+      : null
+  }
+  return out
+})
 </script>
 
 <template>
@@ -50,6 +72,14 @@ const gridStyle = computed(() => ({
           <div class="flex items-center mb-1">
             <span class="text-[12.5px] text-fg font-medium truncate font-mono">{{ key }}</span>
             <div class="flex-1" />
+            <span
+              v-if="badges[key]"
+              class="flex items-center gap-0.5 text-[11px] font-mono mr-1 shrink-0 tabular-nums"
+              :style="{ color: badges[key]!.color }"
+              :title="badges[key]!.star ? 'leading run' : 'latest'"
+            >
+              <span v-if="badges[key]!.star">★</span>{{ badges[key]!.value }}
+            </span>
             <button
               class="opacity-0 group-hover:opacity-100 text-fg-dim hover:text-fg transition-all p-1 -m-1 cursor-pointer"
               title="expand"
