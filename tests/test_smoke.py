@@ -435,6 +435,46 @@ def test_config_accepts_non_dict_types(data_dir):
         assert _get_run(LocalStore(data_dir), run.id)["config"] == expected
 
 
+def test_run_delete_local(data_dir):
+    """run.delete() removes the run, its metrics, and its media — for cleaning up
+    throwaway smoke-test runs without shelling out to `pandm delete`."""
+    from pandm.sdk import _active_runs
+
+    run = pandm.init(project="smoke", name="t", directory=data_dir, remote=False)
+    run.log({"loss": 1.0})
+    run.log_image("img", _png_bytes())
+    rid = run.id
+    run.delete()
+
+    store = LocalStore(data_dir)
+    assert store.get_run(rid) is None
+    assert not (data_dir / "media" / rid).exists()
+    assert run not in _active_runs  # won't be touched by the atexit finisher
+
+
+def test_init_prints_run_banner(data_dir, capsys):
+    run = pandm.init(project="p", name="banner-run", directory=data_dir, remote=False)
+    run.finish()
+    err = capsys.readouterr().err
+    assert run.id in err and "banner-run" in err  # id surfaced for `pandm delete`, name to recognize
+
+
+def test_run_banner_cloud_url(capsys):
+    """In cloud mode the banner is a clickable dashboard deep link (wandb-style)."""
+    from pandm.credentials import Remote
+    from pandm.sdk import _print_run_banner
+
+    class _R:
+        id = "abcd1234"
+        name = "t"
+        project = "my proj"
+
+    _print_run_banner(_R(), Remote("dual", "https://x.test", "k"))  # type: ignore[arg-type]
+    err = capsys.readouterr().err
+    assert "abcd1234" in err
+    assert "https://x.test/?project=my%20proj&runs=abcd1234" in err
+
+
 def test_meta_endpoint_merges_live(data_dir):
     client = TestClient(create_app(data_dir, api_key="k"))
     headers = {"x-api-key": "k"}

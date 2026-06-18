@@ -49,6 +49,7 @@ with pandm.init(project="mnist", config={"lr": 1e-3}) as run:
 | `run.set_progress(current, total=None)` | Report progress in a custom unit (epochs, samples) for the ETA. |
 | `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None, description=None)` | Declare how the dashboard renders a metric (fixed axis, percent, baseline, goal, subtitle). |
 | `run.finish(status="finished")` | End the run. Also runs automatically at process exit. |
+| `run.delete()` | Delete this run + its media, locally and (in cloud mode) on the server. For cleaning up throwaway runs. |
 
 Module-level `pandm.log(...)`, `pandm.log_image(...)`, `pandm.set_progress(...)`,
 `pandm.define_metric(...)`, and `pandm.finish(...)` act on the most recently started
@@ -91,6 +92,27 @@ A reader scanning the dashboard often doesn't know what `eval/win_rate` or a run
 > Write both in the **language the user is conversing with you in**, not English by
 > default — the description exists for that reader. Keep it to one plain line; the name,
 > axis, and config already carry the mechanics, so don't restate them.
+
+## Clean up throwaway runs
+
+Every `pandm.init()` creates a run — including the quick ones spun up just to
+smoke-test that logging works. In cloud mode those land on the shared server and
+pile up as clutter. **If you created a run only to test, delete it when done.**
+
+On init pandm prints the run's id and URL so you can find it again:
+
+```
+pandm: run "baseline" [a1b2c3d4] -> https://pandm.jannchie.com/?project=mnist&runs=a1b2c3d4
+```
+
+Remove a test run with that id:
+
+- in the same script: `run.delete()` — drops the run, its metrics, and media,
+  locally and (when signed in) on the server.
+- from the shell: `pandm delete <id> -y` — `-y` skips the confirm prompt;
+  `--local-only` keeps the cloud copy.
+
+Don't leave smoke-test runs behind on a cloud/shared server.
 
 ## Behaviour that matters
 

@@ -138,6 +138,16 @@ class RemoteBackend:
             self._create_payload["description"] = description
         self._ensure_created()
 
+    def delete_run(self, run_id: str) -> bool:
+        """Delete the run on the server. 404 counts as done (never synced / already
+        gone). Direct request, like run_exists — a 404 must not trip retry warnings."""
+        if time.monotonic() < self._down_until:
+            return False
+        try:
+            return self._client.delete(f"/api/runs/{run_id}").status_code in (200, 404)
+        except Exception:  # noqa: BLE001 — unreachable -> caller can retry via `pandm delete`
+            return False
+
     def run_exists(self, run_id: str) -> bool:
         """Direct read — deliberately NOT routed through _request, so a legitimate
         404 ('no such run') isn't mistaken for an outage and doesn't trip retries."""

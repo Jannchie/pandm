@@ -171,6 +171,14 @@ class Uploader:
             self.store.release_sync_lease(self.run_id, self.owner)
             self.store.close()
 
+    def stop(self) -> None:
+        """Wind the sync thread down without pushing a finish — used by delete()."""
+        self._stop.set()
+        self._wake.set()
+        self._thread.join(timeout=2)
+        self.store.release_sync_lease(self.run_id, self.owner)
+        self.store.close()
+
 
 class DualBackend:
     """SDK backend for logged-in users: synchronous local writes + background upload."""
@@ -244,6 +252,15 @@ class DualBackend:
         if self._uploader:
             self._uploader.finish(status, finished_at)
             self._uploader = None
+
+    def delete_run(self, run_id: str) -> None:
+        """Stop syncing, then delete the run locally and on the server."""
+        if self._uploader:
+            self._uploader.stop()
+            self._uploader = None
+        self.local.delete_run(run_id)
+        remote = RemoteBackend(self._server, self._api_key, transport=self._transport)
+        remote.delete_run(run_id)
 
 
 def _sync_one(

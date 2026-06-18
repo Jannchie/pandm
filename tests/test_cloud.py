@@ -152,6 +152,20 @@ def test_dual_write_carries_metric_meta(local_dir, server):
     }
 
 
+def test_run_delete_dual(local_dir, server):
+    """run.delete() on a live dual-write run stops the uploader and removes the run
+    both locally and on the server — agent smoke-test cleanup in one call."""
+    client, transport = server
+    backend = DualBackend(local_dir, SERVER_URL, None, transport=transport)
+    run = Run(backend, project="smoke", name="t", config={})
+    run.log({"loss": 1.0})
+    run.delete()
+
+    assert LocalStore(local_dir).get_run(run.id) is None
+    assert client.get(f"/api/runs/{run.id}").status_code == 404  # gone (or never synced) on the server
+    assert local_dir and LocalStore(local_dir).runs_needing_sync() == []  # no sync-queue residue
+
+
 def test_offline_then_backfill(local_dir, server):
     client, transport = server
     flaky = FlakyTransport(transport)

@@ -47,7 +47,7 @@ Inspect, export or delete runs from the terminal:
 pandm ls                          # list runs
 pandm show <run_id>               # config, summary, logged metrics
 pandm export <run_id> > data.csv  # full series as CSV (or --json, -k <key>)
-pandm delete <run_id>             # local + cloud copy when signed in
+pandm delete <run_id> -y          # delete a run (local + cloud); -y skips the prompt
 ```
 
 Data lives in `./.pandm` by default; override with `--dir` or `PANDM_DIR`.
@@ -136,6 +136,7 @@ Without OAuth env vars the server falls back to single-tenant mode — `pandm se
 | `run.summary(values)` | record run-level scalars (the chosen checkpoint's metric row); merges across calls |
 | `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None, description=None)` | declare a metric's display: fixed axis, `unit="percent"`, `baseline` line, `goal` for the leading run, `description` subtitle |
 | `run.finish(status="finished")` | end the run (also via `atexit`) |
+| `run.delete()` | delete the run + media, local and cloud — for throwaway smoke-test runs |
 | `GET /api/docs` | REST API reference on any running server |
 
 ## Agent skills

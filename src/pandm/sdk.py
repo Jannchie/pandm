@@ -58,6 +58,21 @@ def _coerce_config(config: Any) -> dict[str, Any]:
         f"config must be a dict, Mapping, dataclass, Namespace, or attribute object — got {type(config).__name__}"
     )
 
+
+def _print_run_banner(run: "Run", resolved: Any) -> None:
+    """wandb-style one-liner on init: makes the run easy to open and — for the
+    throwaway runs an agent leaves behind — easy to clean up, since the id is right
+    there for `pandm delete <id> -y`. Silenced by PANDM_SILENT."""
+    if os.environ.get("PANDM_SILENT"):
+        return
+    if resolved.mode in ("dual", "remote_only") and resolved.url:
+        from urllib.parse import quote
+
+        loc = f"{resolved.url.rstrip('/')}/?project={quote(run.project)}&runs={run.id}"
+    else:
+        loc = "local ./.pandm  ·  `pandm ui` to view"
+    print(f'pandm: run "{run.name}" [{run.id}] -> {loc}', file=sys.stderr)
+
 _FLUSH_INTERVAL = 0.5
 _FLUSH_THRESHOLD = 256
 _HEARTBEAT_INTERVAL = 15.0  # keep updated_at fresh even when nothing is logged
@@ -221,6 +236,7 @@ def init(
     )
     _active_runs.append(run)
     _register_atexit()
+    _print_run_banner(run, resolved)
     return run
 
 
@@ -430,6 +446,21 @@ class Run:
         self._backend.finish_run(self.id, status, time.time())
         if self in _active_runs:
             _active_runs.remove(self)
+
+    def delete(self) -> None:
+        """Delete this run and its media — locally and, in cloud mode, on the server.
+        Made for throwaway smoke tests: `init` → `log` → `delete`, no need to capture
+        the id for `pandm delete`. Stops background threads first; the Run is unusable
+        afterward (don't log to it)."""
+        self._finished = True
+        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout=5)
+        try:
+            self._backend.delete_run(self.id)
+        finally:
+            if self in _active_runs:
+                _active_runs.remove(self)
 
     # ---------------------------------------------------------- plumbing
 

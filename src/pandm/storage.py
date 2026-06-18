@@ -329,6 +329,9 @@ class LocalStore:
             self._db.execute("DELETE FROM metrics WHERE run_id = ?", (run_id,))
             self._db.execute("DELETE FROM media WHERE run_id = ?", (run_id,))
             self._db.execute("DELETE FROM runs WHERE id = ?", (run_id,))
+            # drop the upload cursor too, or `pandm sync` would chase a deleted run
+            self._db.execute("DELETE FROM sync_state WHERE run_id = ?", (run_id,))
+            self._db.execute("DELETE FROM sync_progress WHERE run_id = ?", (run_id,))
             self._db.commit()
         shutil.rmtree(self.media_root / run_id, ignore_errors=True)
 
