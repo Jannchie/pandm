@@ -139,6 +139,35 @@ describe('metrics ingest & watermark', () => {
   })
 })
 
+describe('histograms', () => {
+  it('ingests, dedupes by seq watermark, and reads back the series', async () => {
+    await post('/api/runs', { id: 'hg000001', project: 'p', name: 'h' }, keyOf(alice))
+    const rows = {
+      rows: [0, 1, 2].map((i) => ({
+        key: 'dist/reward', step: i, bins: [0.0, 1.0, 2.0], counts: [i + 1, i + 2], ts: i, seq: i + 1,
+      })),
+    }
+    const first = (await (await post('/api/runs/hg000001/histograms', rows, keyOf(alice))).json()) as any
+    expect(first.inserted).toBe(3)
+    const replay = (await (await post('/api/runs/hg000001/histograms', rows, keyOf(alice))).json()) as any
+    expect(replay.inserted).toBe(0) // the seq watermark drops replays
+
+    const keys = (await (await api('/api/runs/hg000001/histograms', { headers: keyOf(alice) })).json()) as any
+    expect(keys[0].key).toBe('dist/reward')
+    expect(keys[0].points).toBe(3)
+
+    const series = (await (await api('/api/runs/hg000001/histograms/dist%2Freward', { headers: keyOf(alice) })).json()) as any
+    expect(series.steps).toEqual([0, 1, 2])
+    expect(series.counts[0]).toEqual([1, 2])
+    expect(series.bins[0]).toEqual([0, 1, 2])
+  })
+
+  it('isolates histograms: foreign reads are 404', async () => {
+    expect((await api('/api/runs/hg000001/histograms', { headers: keyOf(bob) })).status).toBe(404)
+    expect((await api('/api/runs/hg000001/histograms/dist%2Freward', { headers: keyOf(bob) })).status).toBe(404)
+  })
+})
+
 describe('media via R2', () => {
   async function upload(runId: string, mediaSeq?: number) {
     const form = new FormData()

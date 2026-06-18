@@ -66,6 +66,14 @@ def pump_run(store: LocalStore, remote: RemoteBackend, run_id: str) -> bool:
             if not ok:
                 return False
         store.advance_sync_cursor(run_id, media_id=item["id"])
+
+    for h in store.unsynced_histograms(run_id, state["histograms_rowid"], limit=_BATCH):
+        ok = remote.log_histogram(
+            run_id, h["key"], h["step"], h["bins"], h["counts"], h["ts"], hist_seq=h["seq"]
+        )
+        if not ok:
+            return False
+        store.advance_sync_cursor(run_id, histograms_rowid=h["seq"])
     return True
 
 
@@ -228,6 +236,13 @@ class DualBackend:
         self, run_id: str, key: str, step: int, data: bytes, ext: str, caption: str | None, ts: float
     ) -> None:
         self.local.log_media(run_id, key, step, data, ext, caption, ts)
+        if self._uploader:
+            self._uploader.notify()
+
+    def log_histogram(
+        self, run_id: str, key: str, step: int, bins: list[float], counts: list[int], ts: float
+    ) -> None:
+        self.local.log_histogram(run_id, key, step, bins, counts, ts)
         if self._uploader:
             self._uploader.notify()
 

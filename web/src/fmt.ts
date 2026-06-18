@@ -1,3 +1,8 @@
+/** Monospace stack for ECharts canvas text — canvas doesn't inherit the page font,
+ *  so every chart points its textStyle here to match the UI. */
+export const CHART_FONT =
+  "'Iosevka', 'Sarasa Mono SC', 'JetBrains Mono', 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'PingFang SC', 'Microsoft YaHei', monospace"
+
 /** Compact, chart-friendly number formatting. */
 export function fmtNum(v: number | null | undefined): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '–'

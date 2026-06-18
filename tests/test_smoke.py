@@ -387,6 +387,39 @@ def test_define_metric_local(data_dir):
     assert "bad" not in meta  # the rejected call never reached the store
 
 
+def test_define_metric_panel_band_kind(data_dir):
+    """panel / series / band / kind ride along in metric_meta untouched — the backend
+    is oblivious to them, the dashboard renders from them (multi-line panels, CI bands,
+    bar charts)."""
+    run = pandm.init(project="p", name="rich", directory=data_dir, remote=False)
+    run.define_metric("reward/total", panel="reward", series="total")
+    run.define_metric("reward/shaping", panel="reward")
+    run.define_metric("eval/win_rate", unit="percent", band=True)
+    run.define_metric("eval/return", band={"lo": "eval/return_p05", "hi": "eval/return_p95"})
+    for s in range(4):
+        run.define_metric(f"final/seat{s}", panel="seat_winrate", kind="bar")
+    run.finish()
+
+    meta = _get_run(LocalStore(data_dir), run.id)["metric_meta"]
+    assert meta["reward/total"] == {"panel": "reward", "series": "total"}
+    assert meta["reward/shaping"] == {"panel": "reward"}
+    assert meta["eval/win_rate"] == {"min": 0.0, "max": 1.0, "unit": "percent", "band": True}
+    assert meta["eval/return"]["band"] == {"lo": "eval/return_p05", "hi": "eval/return_p95"}
+    assert meta["final/seat0"] == {"panel": "seat_winrate", "kind": "bar"}
+
+
+def test_define_metric_rejects_bad_args(data_dir):
+    run = pandm.init(project="p", directory=data_dir, remote=False)
+    with pytest.raises(ValueError):
+        run.define_metric("x", band={"lo": "x_lo"})  # band dict needs both lo and hi
+    with pytest.raises(ValueError):
+        run.define_metric("x", kind="heatmap")  # kind must be line/bar/scatter
+    run.define_metric("x", kind="line")  # the default kind is implicit, not stored
+    run.finish()
+    meta = _get_run(LocalStore(data_dir), run.id)["metric_meta"]
+    assert "x" not in meta  # only rejected/no-op calls happened, nothing reached the store
+
+
 def test_finish_ingests_metric_meta(data_dir):
     client = TestClient(create_app(data_dir, api_key="k"))
     headers = {"x-api-key": "k"}
@@ -396,6 +429,56 @@ def test_finish_ingests_metric_meta(data_dir):
     body = {"status": "finished", "metric_meta": spec}
     assert client.post("/api/runs/m1/finish", json=body, headers=headers).status_code == 200
     assert client.get("/api/runs/m1").json()["metric_meta"] == spec
+
+
+def test_log_histogram_local(data_dir):
+    np = pytest.importorskip("numpy")
+    run = pandm.init(project="p", name="hist", directory=data_dir, remote=False)
+    for step in range(3):
+        run.log_histogram("dist/reward", np.random.randn(500) + step, step=step, bins=20)
+    run.log_histogram("adv", ([1, 2, 3], [0.0, 1.0, 2.0, 3.0]), step=3)  # precomputed (counts, edges)
+    run.log_histogram("empty", [], step=4)  # nothing finite -> silently skipped
+    run.finish()
+
+    store = LocalStore(data_dir)
+    assert {k["key"] for k in store.histogram_keys(run.id)} == {"dist/reward", "adv"}
+    series = store.histogram_series(run.id, "dist/reward")
+    assert series["steps"] == [0, 1, 2]
+    assert len(series["counts"][0]) == 20  # n bins
+    assert len(series["bins"][0]) == 21  # n+1 edges
+    adv = store.histogram_series(run.id, "adv")
+    assert adv["counts"][0] == [1, 2, 3] and adv["bins"][0] == [0.0, 1.0, 2.0, 3.0]
+
+
+def test_histogram_seq_dedup(data_dir):
+    store = LocalStore(data_dir)
+    store.create_run("r", "p", "n", {})
+    n = store.log_histograms_seq("r", [("k", 0, [0.0, 1.0], [2], 1.0, 1), ("k", 1, [0.0, 1.0], [3], 2.0, 2)])
+    assert n == 2
+    # a replay (seq ≤ watermark) is dropped; only the fresh seq=3 lands
+    n2 = store.log_histograms_seq("r", [("k", 1, [0.0, 1.0], [3], 2.0, 2), ("k", 2, [0.0, 1.0], [5], 3.0, 3)])
+    assert n2 == 1
+    assert store.histogram_series("r", "k")["steps"] == [0, 1, 2]
+
+
+def test_histogram_ingest_and_read_api(data_dir):
+    client = TestClient(create_app(data_dir, api_key="k"))
+    headers = {"x-api-key": "k"}
+    client.post("/api/runs", json={"id": "h1", "project": "p", "name": "n"}, headers=headers)
+
+    rows = {"rows": [
+        {"key": "dist", "step": 0, "bins": [0.0, 1.0, 2.0], "counts": [3, 5], "ts": 1.0},
+        {"key": "dist", "step": 1, "bins": [0.0, 1.0, 2.0], "counts": [4, 4], "ts": 2.0},
+    ]}
+    assert client.post("/api/runs/h1/histograms", json=rows, headers=headers).json()["inserted"] == 2
+
+    keys = client.get("/api/runs/h1/histograms").json()
+    assert keys[0]["key"] == "dist" and keys[0]["points"] == 2
+    series = client.get("/api/runs/h1/histograms/dist").json()
+    assert series["steps"] == [0, 1] and series["counts"] == [[3, 5], [4, 4]]
+
+    # writes still need the key
+    assert client.post("/api/runs/h1/histograms", json=rows).status_code == 401
 
 
 def test_config_accepts_non_dict_types(data_dir):

@@ -53,6 +53,18 @@ CREATE TABLE IF NOT EXISTS metrics (
     ts     REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_metrics_run_key_step ON metrics (run_id, key, step);
+-- distributions over time (run.log_histogram): one row per (key, step), holding
+-- pre-binned edges + counts (JSON). The payload is O(bins), independent of how
+-- many samples produced it, so the dashboard can draw a step×bin density heatmap.
+CREATE TABLE IF NOT EXISTS histograms (
+    run_id TEXT NOT NULL,
+    key    TEXT NOT NULL,
+    step   INTEGER NOT NULL,
+    bins   TEXT NOT NULL,   -- JSON: bin edges [e0, e1, … en]  (len = counts+1)
+    counts TEXT NOT NULL,   -- JSON: per-bin counts [c0 … c(n-1)]
+    ts     REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_histograms_run_key_step ON histograms (run_id, key, step);
 CREATE TABLE IF NOT EXISTS media (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id   TEXT NOT NULL,
@@ -75,19 +87,21 @@ CREATE TABLE IF NOT EXISTS users (
 -- client side: per-run upload cursor + advisory lease; a row here marks the
 -- run as cloud-tracked (pandm sync ignores runs without one unless told to)
 CREATE TABLE IF NOT EXISTS sync_state (
-    run_id        TEXT PRIMARY KEY,
-    metrics_rowid INTEGER NOT NULL DEFAULT 0,
-    media_id      INTEGER NOT NULL DEFAULT 0,
-    status_synced INTEGER NOT NULL DEFAULT 0,
-    lease_owner   TEXT,
-    lease_expires REAL
+    run_id           TEXT PRIMARY KEY,
+    metrics_rowid    INTEGER NOT NULL DEFAULT 0,
+    media_id         INTEGER NOT NULL DEFAULT 0,
+    histograms_rowid INTEGER NOT NULL DEFAULT 0,
+    status_synced    INTEGER NOT NULL DEFAULT 0,
+    lease_owner      TEXT,
+    lease_expires    REAL
 );
 -- server side: highest client-local seq durably ingested per run, so
 -- at-least-once re-pushes from the sync cursor never duplicate rows
 CREATE TABLE IF NOT EXISTS sync_progress (
-    run_id             TEXT PRIMARY KEY,
-    last_metrics_rowid INTEGER NOT NULL DEFAULT 0,
-    last_media_id      INTEGER NOT NULL DEFAULT 0
+    run_id                TEXT PRIMARY KEY,
+    last_metrics_rowid    INTEGER NOT NULL DEFAULT 0,
+    last_media_id         INTEGER NOT NULL DEFAULT 0,
+    last_histograms_rowid INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -169,6 +183,14 @@ class LocalStore:
         if "description" not in cols:
             self._db.execute("ALTER TABLE runs ADD COLUMN description TEXT NOT NULL DEFAULT ''")
         self._db.execute("CREATE INDEX IF NOT EXISTS idx_runs_user ON runs (user_id)")
+        # histogram sync cursors — the histograms table itself is (re)created by the
+        # schema script above; only the older sync tables need the new columns.
+        ss_cols = {r["name"] for r in self._db.execute("PRAGMA table_info(sync_state)").fetchall()}
+        if "histograms_rowid" not in ss_cols:
+            self._db.execute("ALTER TABLE sync_state ADD COLUMN histograms_rowid INTEGER NOT NULL DEFAULT 0")
+        sp_cols = {r["name"] for r in self._db.execute("PRAGMA table_info(sync_progress)").fetchall()}
+        if "last_histograms_rowid" not in sp_cols:
+            self._db.execute("ALTER TABLE sync_progress ADD COLUMN last_histograms_rowid INTEGER NOT NULL DEFAULT 0")
 
     def close(self) -> None:
         with self._lock:
@@ -233,6 +255,26 @@ class LocalStore:
             self._db.execute("UPDATE runs SET updated_at = ? WHERE id = ?", (ts, run_id))
             self._db.commit()
         return filename
+
+    def log_histogram(
+        self,
+        run_id: str,
+        key: str,
+        step: int,
+        bins: list[float],
+        counts: list[int],
+        ts: float | None = None,
+    ) -> None:
+        """Store one binned distribution. `bins` are the n+1 edges, `counts` the n
+        per-bin counts — pre-aggregated client-side, so the row is O(bins)."""
+        ts = ts if ts is not None else time.time()
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO histograms (run_id, key, step, bins, counts, ts) VALUES (?, ?, ?, ?, ?, ?)",
+                (run_id, key, int(step), json.dumps(list(bins)), json.dumps(list(counts)), ts),
+            )
+            self._db.execute("UPDATE runs SET updated_at = ? WHERE id = ?", (ts, run_id))
+            self._db.commit()
 
     def heartbeat(self, run_id: str, ts: float | None = None) -> None:
         ts = ts if ts is not None else time.time()
@@ -327,6 +369,7 @@ class LocalStore:
     def delete_run(self, run_id: str) -> None:
         with self._lock:
             self._db.execute("DELETE FROM metrics WHERE run_id = ?", (run_id,))
+            self._db.execute("DELETE FROM histograms WHERE run_id = ?", (run_id,))
             self._db.execute("DELETE FROM media WHERE run_id = ?", (run_id,))
             self._db.execute("DELETE FROM runs WHERE id = ?", (run_id,))
             # drop the upload cursor too, or `pandm sync` would chase a deleted run
@@ -344,6 +387,7 @@ class LocalStore:
             ]
             for run_id in run_ids:
                 self._db.execute("DELETE FROM metrics WHERE run_id = ?", (run_id,))
+                self._db.execute("DELETE FROM histograms WHERE run_id = ?", (run_id,))
                 self._db.execute("DELETE FROM media WHERE run_id = ?", (run_id,))
             self._db.execute(f"DELETE FROM runs WHERE {where}", params)
             self._db.commit()
@@ -508,6 +552,42 @@ class LocalStore:
             "ts": [r["ts"] for r in rows],
         }
 
+    def histogram_keys(self, run_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT key, COUNT(*) AS points, MAX(step) AS last_step"
+                " FROM histograms WHERE run_id = ? GROUP BY key ORDER BY key",
+                (run_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def histogram_series(self, run_id: str, key: str, max_steps: int = 200) -> dict[str, list]:
+        """Every stored distribution for one (run, key), stride-sampled to ~max_steps
+        (always keeps the last). bins/counts come back as parsed lists — the dashboard
+        draws them as a step×bin density heatmap."""
+        with self._lock:
+            total = self._db.execute(
+                "SELECT COUNT(*) FROM histograms WHERE run_id = ? AND key = ?", (run_id, key)
+            ).fetchone()[0]
+            if total == 0:
+                return {"steps": [], "bins": [], "counts": [], "ts": []}
+            stride = max(1, math.ceil(total / max_steps))
+            rows = self._db.execute(
+                """
+                SELECT step, bins, counts, ts FROM (
+                    SELECT step, bins, counts, ts, ROW_NUMBER() OVER (ORDER BY step, rowid) AS rn
+                    FROM histograms WHERE run_id = ? AND key = ?
+                ) WHERE (rn - 1) % ? = 0 OR rn = ?
+                """,
+                (run_id, key, stride, total),
+            ).fetchall()
+        return {
+            "steps": [r["step"] for r in rows],
+            "bins": [json.loads(r["bins"]) for r in rows],
+            "counts": [json.loads(r["counts"]) for r in rows],
+            "ts": [r["ts"] for r in rows],
+        }
+
     def list_media(self, run_id: str, key: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
             if key:
@@ -594,6 +674,34 @@ class LocalStore:
             self._db.commit()
         return len(fresh)
 
+    def log_histograms_seq(
+        self, run_id: str, rows: list[tuple[str, int, list, list, float, int]]
+    ) -> int:
+        """rows: [(key, step, bins, counts, ts, seq), ...] — returns how many were fresh."""
+        if not rows:
+            return 0
+        with self._lock:
+            row = self._db.execute(
+                "SELECT last_histograms_rowid FROM sync_progress WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            last = row["last_histograms_rowid"] if row else 0
+            fresh = [r for r in rows if r[5] > last]
+            if fresh:
+                self._db.executemany(
+                    "INSERT INTO histograms (run_id, key, step, bins, counts, ts) VALUES (?, ?, ?, ?, ?, ?)",
+                    [(run_id, k, s, json.dumps(list(b)), json.dumps(list(c)), t) for k, s, b, c, t, _ in fresh],
+                )
+                self._db.execute(
+                    "INSERT INTO sync_progress (run_id, last_histograms_rowid) VALUES (?, ?)"
+                    " ON CONFLICT(run_id) DO UPDATE SET last_histograms_rowid = excluded.last_histograms_rowid",
+                    (run_id, max(r[5] for r in fresh)),
+                )
+                self._db.execute(
+                    "UPDATE runs SET updated_at = ? WHERE id = ?", (max(r[4] for r in fresh), run_id)
+                )
+            self._db.commit()
+        return len(fresh)
+
     def claim_media_seq(self, run_id: str, media_id: int) -> bool:
         """True if this client-local media id is fresh (advances the watermark)."""
         with self._lock:
@@ -625,7 +733,12 @@ class LocalStore:
         return dict(row) if row else None
 
     def advance_sync_cursor(
-        self, run_id: str, metrics_rowid: int | None = None, media_id: int | None = None, status_synced: bool | None = None
+        self,
+        run_id: str,
+        metrics_rowid: int | None = None,
+        media_id: int | None = None,
+        histograms_rowid: int | None = None,
+        status_synced: bool | None = None,
     ) -> None:
         sets, params = [], []
         if metrics_rowid is not None:
@@ -634,6 +747,9 @@ class LocalStore:
         if media_id is not None:
             sets.append("media_id = ?")
             params.append(media_id)
+        if histograms_rowid is not None:
+            sets.append("histograms_rowid = ?")
+            params.append(histograms_rowid)
         if status_synced is not None:
             sets.append("status_synced = ?")
             params.append(int(status_synced))
@@ -683,6 +799,26 @@ class LocalStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def unsynced_histograms(self, run_id: str, after_rowid: int, limit: int = 200) -> list[dict[str, Any]]:
+        """Committed histogram rows past the cursor, oldest first, bins/counts parsed."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT rowid AS seq, key, step, bins, counts, ts FROM histograms"
+                " WHERE run_id = ? AND rowid > ? ORDER BY rowid LIMIT ?",
+                (run_id, after_rowid, limit),
+            ).fetchall()
+        return [
+            {
+                "seq": r["seq"],
+                "key": r["key"],
+                "step": r["step"],
+                "bins": json.loads(r["bins"]),
+                "counts": json.loads(r["counts"]),
+                "ts": r["ts"],
+            }
+            for r in rows
+        ]
+
     def runs_needing_sync(self) -> list[str]:
         """Cloud-tracked runs with unsynced rows, media, or final status."""
         with self._lock:
@@ -691,6 +827,7 @@ class LocalStore:
                 SELECT s.run_id FROM sync_state s JOIN runs r ON r.id = s.run_id
                 WHERE s.metrics_rowid < COALESCE((SELECT MAX(rowid) FROM metrics m WHERE m.run_id = s.run_id), 0)
                    OR s.media_id < COALESCE((SELECT MAX(id) FROM media md WHERE md.run_id = s.run_id), 0)
+                   OR s.histograms_rowid < COALESCE((SELECT MAX(rowid) FROM histograms h WHERE h.run_id = s.run_id), 0)
                    OR (r.status != 'running' AND s.status_synced = 0)
                 ORDER BY r.created_at
                 """

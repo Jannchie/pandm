@@ -250,6 +250,11 @@ def log_image(key: str, image: Any, step: int | None = None, caption: str | None
     _current().log_image(key, image, step=step, caption=caption)
 
 
+def log_histogram(key: str, samples: Any, step: int | None = None, bins: int = 30) -> None:
+    """Log a distribution snapshot to the most recently started run (mirrors run.log_histogram)."""
+    _current().log_histogram(key, samples, step=step, bins=bins)
+
+
 def set_progress(current: float, total: float | None = None) -> None:
     """Report training progress on the most recently started run (mirrors run.set_progress)."""
     _current().set_progress(current, total=total)
@@ -261,8 +266,8 @@ def summary(values: dict[str, Any]) -> None:
 
 
 def define_metric(key: str, **spec: Any) -> None:
-    """Declare a metric's display spec on the most recently started run
-    (mirrors run.define_metric: min, max, unit, goal, baseline)."""
+    """Declare a metric's display spec on the most recently started run (mirrors
+    run.define_metric: min, max, unit, goal, baseline, panel, series, band, kind)."""
     _current().define_metric(key, **spec)
 
 
@@ -385,6 +390,10 @@ class Run:
         goal: str | None = None,
         baseline: float | None = None,
         description: str | None = None,
+        panel: str | None = None,
+        series: str | None = None,
+        band: bool | dict | None = None,
+        kind: str | None = None,
     ) -> None:
         """Declare how the dashboard should render a metric — call once, before the
         loop. Pins the y-axis to a fixed range, formats it (e.g. as a percentage),
@@ -398,9 +407,24 @@ class Run:
         `unit="percent"` defaults the range to 0..1 and shows 0.73 as 73%. `goal` is
         "max" or "min". `baseline` draws a dashed reference line (e.g. chance level).
         `description` is a short human note shown under the chart — write it in the
-        reader's own language. The spec applies immediately — locally, and in cloud
-        mode it is pushed live to the server (like progress). The backend write is
-        best-effort, never interrupts training."""
+        reader's own language.
+
+        Group several related keys into one chart with `panel` — every key sharing a
+        `panel` value renders as one line in the same chart (reward/total, reward/shaping,
+        reward/terminal → a single "reward" chart). `series` overrides the legend label
+        (defaults to the key). `band` draws a shaded confidence interval: `band=True`
+        pairs the key with its `_lo`/`_hi` siblings, or pass `{"lo": ..., "hi": ...}`
+        with explicit key names. `kind` picks the chart type — "line" (default), "bar"
+        (category comparison: seat0/1/2/3 final win rates), or "scatter".
+
+            run.define_metric("reward/total",   panel="reward")     # \
+            run.define_metric("reward/shaping", panel="reward")     #  } one chart, 3 lines
+            run.define_metric("reward/terminal", panel="reward")    # /
+            run.define_metric("eval/win_rate", band=True, unit="percent")  # mean + shaded CI
+
+        The spec applies immediately — locally, and in cloud mode it is pushed live to
+        the server (like progress). The backend write is best-effort, never interrupts
+        training."""
         spec: dict[str, Any] = {}
         if unit == "percent" and min is None and max is None:
             min, max = 0.0, 1.0
@@ -418,12 +442,49 @@ class Run:
             spec["baseline"] = float(baseline)
         if description is not None:
             spec["description"] = str(description)
+        if panel is not None:
+            spec["panel"] = str(panel)
+        if series is not None:
+            spec["series"] = str(series)
+        if isinstance(band, dict):
+            if "lo" not in band or "hi" not in band:
+                raise ValueError("band dict must have 'lo' and 'hi' keys")
+            spec["band"] = {"lo": str(band["lo"]), "hi": str(band["hi"])}
+        elif band:  # True -> pair with the _lo/_hi siblings; False/None -> no band
+            spec["band"] = True
+        if kind is not None:
+            if kind not in ("line", "bar", "scatter"):
+                raise ValueError(f"kind must be 'line', 'bar', or 'scatter', got {kind!r}")
+            if kind != "line":  # the default is implicit — keep metric_meta minimal
+                spec["kind"] = kind
         if not spec:
             return
         try:
             self._backend.set_metric_meta(self.id, {str(key): spec})
         except Exception:  # noqa: BLE001 — display metadata is best-effort, never kill training
             pass
+
+    def log_histogram(self, key: str, samples: Any, *, step: int | None = None, bins: int = 30) -> None:
+        """Log a distribution snapshot — the shape of `samples`, not just its mean.
+
+            run.log_histogram("dist/reward", episode_rewards, step=step)   # raw samples
+            run.log_histogram("adv", (counts, edges), step=step)           # pre-binned
+
+        `samples` is a raw array (list / numpy / torch tensor) that pandm bins
+        client-side with numpy, so only the O(bins) edges + counts are stored —
+        independent of how many samples produced them. Pass a precomputed
+        ``(counts, edges)`` tuple to skip binning. The dashboard draws the series of
+        snapshots as a step×bin density heatmap (is the distribution bimodal? long-
+        tailed? collapsing?). Needs numpy. No-op on an empty sample set."""
+        if self._finished:
+            raise RuntimeError(f"run {self.id} is already finished")
+        if step is None:
+            step = max(0, self._step - 1)  # align with the latest metric step
+        edges, counts = _histogram(samples, bins)
+        if not edges:  # empty / all-non-finite sample set — nothing to store
+            return
+        self._flush()  # keep metric/histogram ordering roughly consistent
+        self._backend.log_histogram(self.id, str(key), int(step), edges, counts, time.time())
 
     def log_image(self, key: str, image: Any, step: int | None = None, caption: str | None = None) -> None:
         """Log an image: PIL Image, numpy/torch array (HWC or CHW), file path, or raw bytes."""
@@ -509,6 +570,28 @@ class Run:
 
     def __repr__(self) -> str:
         return f"Run(id={self.id!r}, name={self.name!r}, project={self.project!r})"
+
+
+def _histogram(samples: Any, bins: int) -> tuple[list[float], list[int]]:
+    """Bin a raw sample array into (edges, counts) with numpy. Accepts a list,
+    numpy array, or torch tensor — or a precomputed ``(counts, edges)`` tuple,
+    passed straight through. Returns ([], []) for an empty / all-non-finite set."""
+    if isinstance(samples, tuple) and len(samples) == 2:  # precomputed (counts, edges)
+        counts, edges = samples
+        return [float(e) for e in edges], [int(c) for c in counts]
+    try:
+        import numpy as np  # pyright: ignore[reportMissingImports]
+    except ImportError as exc:  # numpy isn't a hard dep — only log_histogram needs it
+        raise ImportError("run.log_histogram needs numpy: pip install numpy") from exc
+    data: Any = samples
+    if hasattr(data, "detach"):  # torch tensor -> numpy, without importing torch
+        data = data.detach().cpu().numpy()
+    arr = np.asarray(data, dtype=float).ravel()
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return [], []
+    counts, edges = np.histogram(arr, bins=bins)
+    return [float(e) for e in edges], [int(c) for c in counts]
 
 
 def _encode_image(image: Any) -> tuple[bytes, str]:

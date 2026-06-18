@@ -24,3 +24,10 @@ export function runColor(runId: string): string {
   }
   return color
 }
+
+/** Per-series color inside a multi-line panel — positional, wraps around. Distinct
+ *  from runColor: in a single-run panel each metric (reward/total, reward/shaping, …)
+ *  is one line, coloured by its index rather than by run identity. */
+export function seriesColor(index: number): string {
+  return PALETTE[index % PALETTE.length]
+}

@@ -38,6 +38,29 @@ export const visibleRuns = computed(() => {
 
 export const selectedRuns = computed(() => state.runs.filter((r) => state.selected.includes(r.id)))
 
+// --------------------------------------------------------------- chart model
+// A chart is no longer 1:1 with a metric key. define_metric(panel=...) groups
+// several keys into one multi-line chart; band=... folds a mean/_lo/_hi triple
+// into one shaded series. MetricsPanel builds these descriptors; MetricChart
+// renders them. See proposals A/B/C.
+
+export interface ChartSeriesDesc {
+  key: string // the mean / primary metric key
+  label: string // legend label (define_metric series=, else the key)
+  band?: { lo: string; hi: string } // shaded CI bounds, when declared / detected
+  kind: 'line' | 'bar' | 'scatter'
+}
+
+export interface ChartDesc {
+  id: string // stable across polls: `key:loss` or `panel:reward`
+  title: string // the key, or the panel name
+  panel?: string // set when this chart groups a panel of keys
+  kind: 'line' | 'bar' | 'scatter'
+  series: ChartSeriesDesc[]
+  // option A: a single-run panel colours by series; everything else colours by run
+  colorBy: 'run' | 'series'
+}
+
 // a metric's display spec (run.define_metric): the first selected run that declares
 // it wins — specs describe the metric's meaning (win_rate is always 0..1), so runs
 // that bother declaring it should agree.
@@ -319,3 +342,26 @@ export function getSeries(run: api.Run, key: string): Promise<api.Series> {
 }
 
 export const getMedia = (run: api.Run) => cached(mediaCache, run, run.id, () => api.fetchMedia(run.id))
+
+// histograms aren't in run.stats (those are metric-only), so a run's distribution
+// keys are discovered with a dedicated request, cached by updated_at. The reactive
+// map drives the dashboard's Distributions section; getHistogram fetches a series.
+const histogramCache = new Map<string, CacheEntry<api.HistogramSeries>>()
+
+export function getHistogram(run: api.Run, key: string): Promise<api.HistogramSeries> {
+  return cached(histogramCache, run, `${run.id} ${key}`, () => api.fetchHistogramSeries(run.id, key))
+}
+
+export const histogramKeysByRun = reactive<Record<string, string[]>>({})
+const hkVersion = new Map<string, number>()
+
+export async function ensureHistogramKeys(run: api.Run): Promise<void> {
+  if (hkVersion.get(run.id) === run.updated_at) return // already current for this revision
+  hkVersion.set(run.id, run.updated_at)
+  try {
+    const keys = await api.fetchHistogramKeys(run.id)
+    histogramKeysByRun[run.id] = keys.map((k) => k.key)
+  } catch {
+    /* a run with no histograms / a transient error simply contributes nothing */
+  }
+}

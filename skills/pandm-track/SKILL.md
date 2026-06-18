@@ -1,6 +1,6 @@
 ---
 name: pandm-track
-description: Record machine-learning experiment metrics, images, hyperparameters, and training progress to pandm — a local-first, account-free wandb/tensorboard alternative that writes to a `.pandm/` SQLite + PNG store. Use when instrumenting a training or evaluation loop, logging scalar metrics or images from a Python script, reporting an ETA, or saving a run's config so it can later be compared in the pandm dashboard.
+description: Record machine-learning experiment metrics, images, distributions, hyperparameters, and training progress to pandm — a local-first, account-free wandb/tensorboard alternative that writes to a `.pandm/` SQLite + PNG store. Use when instrumenting a training or evaluation loop, logging scalar metrics or images from a Python script, building richer charts (multi-line panels, confidence bands, bar charts, histograms — especially for RL), reporting an ETA, or saving a run's config so it can later be compared in the pandm dashboard.
 ---
 
 # Recording experiments with pandm
@@ -46,14 +46,15 @@ with pandm.init(project="mnist", config={"lr": 1e-3}) as run:
 | `pandm.init(project="default", name=None, config=None, *, description=None, total_steps=None, directory=None, remote=None, api_key=None)` | Start a run; returns a `Run` (also a context manager). `description` = a one-line subtitle. |
 | `run.log(metrics: dict, step=None)` | Log scalar metrics. `step` defaults to an internal per-run counter. |
 | `run.log_image(key, image, step=None, caption=None)` | Log one image. `step` defaults to the latest metric step. |
+| `run.log_histogram(key, samples, *, step=None, bins=30)` | Log a distribution snapshot — drawn over time as a density heatmap. Needs numpy. See *Richer charts*. |
 | `run.set_progress(current, total=None)` | Report progress in a custom unit (epochs, samples) for the ETA. |
-| `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None, description=None)` | Declare how the dashboard renders a metric (fixed axis, percent, baseline, goal, subtitle). |
+| `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None, description=None, panel=None, series=None, band=None, kind="line")` | Declare how the dashboard renders a metric — fixed axis, percent, baseline, goal, subtitle, **and** multi-line panels / CI bands / bar charts. See *Richer charts*. |
 | `run.finish(status="finished")` | End the run. Also runs automatically at process exit. |
 | `run.delete()` | Delete this run + its media, locally and (in cloud mode) on the server. For cleaning up throwaway runs. |
 
-Module-level `pandm.log(...)`, `pandm.log_image(...)`, `pandm.set_progress(...)`,
-`pandm.define_metric(...)`, and `pandm.finish(...)` act on the most recently started
-run — convenient when passing the `run` object around is awkward.
+Module-level `pandm.log(...)`, `pandm.log_image(...)`, `pandm.log_histogram(...)`,
+`pandm.set_progress(...)`, `pandm.define_metric(...)`, and `pandm.finish(...)` act on the
+most recently started run — convenient when passing the `run` object around is awkward.
 
 ## Declaring how a metric should look
 
@@ -78,6 +79,63 @@ Reach for it whenever "good" has a known scale (RL win/success rates, classifica
 accuracy, anything in `0..1`). The spec applies immediately — locally, and in cloud
 mode it is pushed live to the server (like progress), so a running run shows the fixed
 axis right away. The backend write never interrupts training.
+
+## Richer charts: panels, confidence bands, bars, distributions
+
+By default each metric key is its own line chart. Four `define_metric` options (plus
+`log_histogram`) cover the shapes that line-per-key can't — especially for RL. All are
+**author-declared display hints**: you still `log()` plain scalars; the dashboard renders
+them differently. Unset means today's behaviour, so they're fully backward-compatible.
+
+**Multi-line panel (`panel=`)** — group related keys into one chart, one line each.
+Ideal for reward decompositions, loss terms, multi-seat/opponent win rates:
+
+```python
+run.define_metric("reward/total",   panel="reward", series="total")
+run.define_metric("reward/shaping",  panel="reward")   # series= defaults to the key
+run.define_metric("reward/terminal", panel="reward")
+# log them as usual: run.log({"reward/total": ..., "reward/shaping": ..., ...}, step)
+```
+
+Keys sharing a `panel` value render together with a legend. When several runs are
+selected for comparison the panel falls back to one chart per key (coloured by run), so
+run-vs-run reading still works.
+
+**Confidence band (`band=`)** — a mean line with a shaded interval, for noisy evals
+where you need to tell signal from sampling noise. Log three scalars (mean + bounds);
+`band=True` pairs the metric with its `_lo` / `_hi` siblings by name:
+
+```python
+run.define_metric("eval/win_rate", unit="percent", goal="max", band=True)
+# each eval: log the mean and the interval bounds together, at the same step
+run.log({"eval/win_rate": m, "eval/win_rate_lo": lo, "eval/win_rate_hi": hi}, step=step)
+```
+
+Or name the bounds explicitly: `band={"lo": "eval/ret_p05", "hi": "eval/ret_p95"}`.
+Log the three at the **same step** (they're matched by step for the shaded fill).
+
+**Bar chart (`kind="bar"`)** — category comparison instead of a time axis: per-seat final
+win rates, terminal-reason counts, per-opponent results. Bars take each key's latest
+value (or its `run.summary` scalar):
+
+```python
+for s in range(4):
+    run.define_metric(f"final/seat{s}", panel="seat_winrate", kind="bar", series=f"seat{s}")
+```
+
+**Distribution over time (`run.log_histogram`)** — the *shape* of a distribution as it
+evolves, not just its mean: episode-reward spread (bimodal? long-tailed?), action
+distribution (policy collapse?), advantage spread. pandm bins the samples client-side
+(numpy) and stores only the `O(bins)` edges + counts, so the payload is tiny regardless
+of sample count. Drawn as a step×bin density heatmap under a *distributions* section:
+
+```python
+run.log_histogram("dist/episode_reward", episode_rewards, step=step, bins=30)
+# already have a histogram? pass it precomputed: log_histogram(key, (counts, edges), step=step)
+```
+
+For a confidence-band helper that aggregates raw samples into `mean/_lo/_hi`, and a full
+RL example exercising all four, see `examples/train_demo.py` (`simulate_rl`).
 
 ## Subtitles: describe runs and metrics in the reader's language
 

@@ -267,6 +267,7 @@ export async function deleteRun(db: D1Database, runId: string): Promise<string[]
     .all<{ filename: string }>()
   await db.batch([
     db.prepare('DELETE FROM metrics WHERE run_id = ?1').bind(runId),
+    db.prepare('DELETE FROM histograms WHERE run_id = ?1').bind(runId),
     db.prepare('DELETE FROM media WHERE run_id = ?1').bind(runId),
     db.prepare('DELETE FROM sync_progress WHERE run_id = ?1').bind(runId),
     db.prepare('DELETE FROM runs WHERE id = ?1').bind(runId),
@@ -289,6 +290,7 @@ export async function deleteProject(db: D1Database, userId: number, project: str
     .all<{ run_id: string; filename: string }>()
   await db.batch([
     db.prepare(`DELETE FROM metrics WHERE run_id IN (${placeholders})`).bind(...runIds),
+    db.prepare(`DELETE FROM histograms WHERE run_id IN (${placeholders})`).bind(...runIds),
     db.prepare(`DELETE FROM media WHERE run_id IN (${placeholders})`).bind(...runIds),
     db.prepare(`DELETE FROM sync_progress WHERE run_id IN (${placeholders})`).bind(...runIds),
     db.prepare('DELETE FROM runs WHERE user_id = ?1 AND project = ?2').bind(userId, project),
@@ -449,6 +451,89 @@ export async function metricSeries(
   return {
     steps: results.map((r) => r.step),
     values: results.map((r) => r.value),
+    ts: results.map((r) => r.ts),
+  }
+}
+
+// --------------------------------------------------------------- histograms
+
+export interface HistogramIn {
+  key: string
+  step: number
+  bins: number[] // n+1 edges
+  counts: number[] // n counts
+  ts: number
+  seq?: number | null
+}
+
+/** Plain ingest (legacy PANDM_REMOTE path: no seq, no dedup). */
+export async function logHistograms(db: D1Database, runId: string, rows: HistogramIn[]): Promise<void> {
+  if (rows.length === 0) return
+  const stmts = rows.map((r) =>
+    db
+      .prepare('INSERT INTO histograms (run_id, key, step, bins, counts, ts) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
+      .bind(runId, r.key, r.step, JSON.stringify(r.bins), JSON.stringify(r.counts), r.ts),
+  )
+  stmts.push(db.prepare('UPDATE runs SET updated_at = ?1 WHERE id = ?2').bind(Math.max(...rows.map((r) => r.ts)), runId))
+  await db.batch(stmts)
+}
+
+/** Watermarked ingest: rows at or below the stored watermark are replays. */
+export async function logHistogramsSeq(db: D1Database, runId: string, rows: HistogramIn[]): Promise<number> {
+  const wm = await db
+    .prepare('SELECT last_histograms_rowid FROM sync_progress WHERE run_id = ?1')
+    .bind(runId)
+    .first<{ last_histograms_rowid: number }>()
+  const last = wm?.last_histograms_rowid ?? 0
+  const fresh = rows.filter((r) => (r.seq ?? 0) > last)
+  if (fresh.length === 0) return 0
+  const hi = Math.max(...fresh.map((r) => r.seq!))
+  const stmts = fresh.map((r) =>
+    db
+      .prepare('INSERT INTO histograms (run_id, key, step, bins, counts, ts) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
+      .bind(runId, r.key, r.step, JSON.stringify(r.bins), JSON.stringify(r.counts), r.ts),
+  )
+  stmts.push(
+    db
+      .prepare(
+        `INSERT INTO sync_progress (run_id, last_histograms_rowid) VALUES (?1, ?2)
+         ON CONFLICT(run_id) DO UPDATE SET last_histograms_rowid = MAX(last_histograms_rowid, excluded.last_histograms_rowid)`,
+      )
+      .bind(runId, hi),
+    db.prepare('UPDATE runs SET updated_at = ?1 WHERE id = ?2').bind(Math.max(...fresh.map((r) => r.ts)), runId),
+  )
+  await db.batch(stmts)
+  return fresh.length
+}
+
+export const histogramKeys = async (db: D1Database, runId: string) => {
+  const { results } = await db
+    .prepare(
+      `SELECT key, COUNT(*) AS points, MAX(step) AS last_step
+       FROM histograms WHERE run_id = ?1 GROUP BY key ORDER BY key`,
+    )
+    .bind(runId)
+    .all()
+  return results
+}
+
+export async function histogramSeries(db: D1Database, runId: string, key: string, maxSteps = 200) {
+  // same stride-sampling trick as metricSeries — fold the row count into one scan
+  const { results } = await db
+    .prepare(
+      `SELECT step, bins, counts, ts FROM (
+         SELECT step, bins, counts, ts,
+                ROW_NUMBER() OVER (ORDER BY step, rowid) AS rn,
+                COUNT(*) OVER () AS total
+         FROM histograms WHERE run_id = ?1 AND key = ?2
+       ) WHERE (rn - 1) % MAX(1, (total + ?3 - 1) / ?3) = 0 OR rn = total`,
+    )
+    .bind(runId, key, Math.max(1, maxSteps))
+    .all<{ step: number, bins: string, counts: string, ts: number }>()
+  return {
+    steps: results.map((r) => r.step),
+    bins: results.map((r) => JSON.parse(r.bins)),
+    counts: results.map((r) => JSON.parse(r.counts)),
     ts: results.map((r) => r.ts),
   }
 }

@@ -47,6 +47,19 @@ class MetricRowsIn(BaseModel):
     rows: list[MetricRow]
 
 
+class HistogramRow(BaseModel):
+    key: str
+    step: int
+    bins: list[float]  # n+1 bin edges
+    counts: list[int]  # n per-bin counts
+    ts: float
+    seq: int | None = None  # client-local rowid; enables idempotent re-push
+
+
+class HistogramRowsIn(BaseModel):
+    rows: list[HistogramRow]
+
+
 class ProgressIn(BaseModel):
     current: float
     total: float | None = None
@@ -140,6 +153,18 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
         check_owner(run_id, user)
         return store.metric_series(run_id, key, max_points=max_points, after_step=after_step)
 
+    @app.get("/api/runs/{run_id}/histograms")
+    def run_histogram_keys(run_id: str, user: dict | None = Depends(current_user)) -> list[dict[str, Any]]:
+        check_owner(run_id, user)
+        return store.histogram_keys(run_id)
+
+    @app.get("/api/runs/{run_id}/histograms/{key:path}")
+    def run_histogram_series(
+        run_id: str, key: str, max_steps: int = 200, user: dict | None = Depends(current_user)
+    ) -> dict[str, list]:
+        check_owner(run_id, user)
+        return store.histogram_series(run_id, key, max_steps=max_steps)
+
     @app.get("/api/runs/{run_id}/media")
     def run_media(
         run_id: str, key: str | None = None, user: dict | None = Depends(current_user)
@@ -181,6 +206,22 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
             )
         else:
             store.log_metrics(run_id, [(r.key, r.step, r.value, r.ts) for r in body.rows])
+            inserted = len(body.rows)
+        return {"inserted": inserted}
+
+    @app.post("/api/runs/{run_id}/histograms")
+    def ingest_histograms(
+        run_id: str, body: HistogramRowsIn, user: dict | None = Depends(require_key)
+    ) -> dict[str, int]:
+        check_owner(run_id, user)
+        if body.rows and all(r.seq is not None for r in body.rows):
+            inserted = store.log_histograms_seq(
+                run_id,
+                [(r.key, r.step, r.bins, r.counts, r.ts, r.seq) for r in body.rows],  # type: ignore[misc]
+            )
+        else:
+            for r in body.rows:
+                store.log_histogram(run_id, r.key, r.step, r.bins, r.counts, r.ts)
             inserted = len(body.rows)
         return {"inserted": inserted}
 

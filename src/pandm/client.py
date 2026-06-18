@@ -204,6 +204,23 @@ class RemoteBackend:
         )
         return resp is not None
 
+    def log_histogram(
+        self,
+        run_id: str,
+        key: str,
+        step: int,
+        bins: list[float],
+        counts: list[int],
+        ts: float,
+        hist_seq: int | None = None,
+    ) -> bool:
+        if not self._ensure_created():
+            return False
+        row: dict[str, Any] = {"key": key, "step": step, "bins": list(bins), "counts": list(counts), "ts": ts}
+        if hist_seq is not None:  # idempotent re-push from the sync cursor
+            row["seq"] = hist_seq
+        return self._request("POST", f"/api/runs/{run_id}/histograms", json={"rows": [row]}) is not None
+
     def heartbeat(self, run_id: str, ts: float) -> bool:
         if not self._ensure_created():
             return False

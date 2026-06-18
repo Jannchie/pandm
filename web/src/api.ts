@@ -37,11 +37,30 @@ export interface MetricSpec {
   goal?: 'max' | 'min' // which direction is "better" (marks the leading run)
   baseline?: number // draws a dashed reference line (e.g. chance level)
   description?: string // one-line human note shown under the chart
+  panel?: string // keys sharing a panel render as lines in one chart
+  series?: string // legend label for this key's line (defaults to the key)
+  band?: boolean | { lo: string; hi: string } // shaded CI: true = _lo/_hi suffix, or explicit keys
+  kind?: 'line' | 'bar' | 'scatter' // chart type (default 'line')
 }
 
 export interface Series {
   steps: number[]
   values: number[]
+  ts: number[]
+}
+
+export interface HistogramKey {
+  key: string
+  points: number
+  last_step: number
+}
+
+/** A series of binned distributions over time — bins[i]/counts[i] is the snapshot
+ *  at steps[i]. bins[i] holds n+1 edges, counts[i] the n per-bin counts. */
+export interface HistogramSeries {
+  steps: number[]
+  bins: number[][]
+  counts: number[][]
   ts: number[]
 }
 
@@ -107,6 +126,11 @@ export const fetchSeries = (runId: string, key: string, afterStep?: number) =>
   )
 
 export const fetchMedia = (runId: string) => get<MediaItem[]>(`/api/runs/${runId}/media`)
+
+export const fetchHistogramKeys = (runId: string) => get<HistogramKey[]>(`/api/runs/${runId}/histograms`)
+
+export const fetchHistogramSeries = (runId: string, key: string) =>
+  get<HistogramSeries>(`/api/runs/${runId}/histograms/${encodeURIComponent(key)}`)
 
 export async function deleteRun(runId: string): Promise<void> {
   const resp = await fetch(`/api/runs/${runId}`, { method: 'DELETE' })

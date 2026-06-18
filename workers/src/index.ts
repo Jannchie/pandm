@@ -115,6 +115,21 @@ app.get('/api/runs/:id/metrics/*', async (c) => {
   )
 })
 
+app.get('/api/runs/:id/histograms', async (c) => {
+  const runId = c.req.param('id')
+  return (await ownerGuard(c, runId)) ?? cachedJson(c, () => db.histogramKeys(c.env.DB, runId))
+})
+
+// histogram keys may contain slashes (e.g. "dist/reward") — wildcard + manual extraction
+app.get('/api/runs/:id/histograms/*', async (c) => {
+  const runId = c.req.param('id')
+  const guard = await ownerGuard(c, runId)
+  if (guard) return guard
+  const key = decodeURIComponent(c.req.path.split('/histograms/')[1] ?? '')
+  const maxSteps = Number.parseInt(c.req.query('max_steps') ?? '200')
+  return cachedJson(c, () => db.histogramSeries(c.env.DB, runId, key, maxSteps))
+})
+
 app.get('/api/runs/:id/media', async (c) => {
   const runId = c.req.param('id')
   const guard = await ownerGuard(c, runId)
@@ -191,6 +206,21 @@ app.post('/api/runs/:id/metrics', async (c) => {
     inserted = await db.logMetricsSeq(c.env.DB, runId, rows)
   } else {
     await db.logMetrics(c.env.DB, runId, rows)
+    inserted = rows.length
+  }
+  return c.json({ inserted })
+})
+
+app.post('/api/runs/:id/histograms', async (c) => {
+  const runId = c.req.param('id')
+  const guard = await ownerGuard(c, runId)
+  if (guard) return guard
+  const { rows } = await c.req.json<{ rows: db.HistogramIn[] }>()
+  let inserted: number
+  if (rows.length > 0 && rows.every((r) => r.seq !== null && r.seq !== undefined)) {
+    inserted = await db.logHistogramsSeq(c.env.DB, runId, rows)
+  } else {
+    await db.logHistograms(c.env.DB, runId, rows)
     inserted = rows.length
   }
   return c.json({ inserted })

@@ -116,6 +116,25 @@ def test_dual_write_basic(local_dir, server):
     assert local.runs_needing_sync() == []
 
 
+def test_dual_write_histograms(local_dir, server):
+    """Histograms ride the same cursor + seq-dedup machinery as metrics: the uploader
+    drains them to the server, which dedupes replays by seq."""
+    client, transport = server
+    backend = DualBackend(local_dir, SERVER_URL, None, transport=transport)
+    run = Run(backend, project="proj", name="h", config={})
+    for step in range(3):
+        # precomputed (counts, edges) so the cloud test needs no numpy
+        run.log_histogram("dist", ([step + 1, step + 2], [0.0, 1.0, 2.0]), step=step)
+    run.finish()
+
+    local = LocalStore(local_dir)
+    assert local.runs_needing_sync() == []  # cursor fully advanced
+    keys = client.get(f"/api/runs/{run.id}/histograms").json()
+    assert keys[0]["key"] == "dist" and keys[0]["points"] == 3
+    series = client.get(f"/api/runs/{run.id}/histograms/dist").json()
+    assert series["steps"] == [0, 1, 2] and series["counts"][0] == [1, 2]
+
+
 def test_metric_meta_pushed_live(server):
     """define_metric reaches the server while the run is still running — not just at
     finish. RemoteBackend.set_metric_meta POSTs immediately, mirroring progress."""
