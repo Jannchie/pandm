@@ -24,9 +24,9 @@ export default defineConfig({
   },
   shortcuts: {
     card: 'bg-panel border border-border rounded-xl',
-    btn: 'px-2.5 py-1 rounded-md text-[12.5px] text-fg-mut hover:text-fg hover:bg-elev transition-colors cursor-pointer select-none whitespace-nowrap',
+    btn: 'px-2.5 py-1 rounded-md text-[14px] text-fg-mut hover:text-fg hover:bg-elev transition-colors cursor-pointer select-none whitespace-nowrap',
     'btn-on': 'text-fg bg-elev',
     'input-base':
-      'bg-elev border border-border rounded-lg text-[13px] text-fg placeholder:text-fg-dim outline-none focus:border-accent/60 transition-colors',
+      'bg-elev border border-border rounded-lg text-[14.5px] text-fg placeholder:text-fg-dim outline-none focus:border-accent/60 transition-colors',
   },
 })

@@ -15,17 +15,17 @@ import { state } from '../store'
           stroke-linejoin="round"
         />
       </svg>
-      <span class="font-semibold tracking-tight text-[26px]">pandm</span>
+      <span class="font-semibold tracking-tight text-[30px]">pandm</span>
     </div>
 
-    <p class="text-[13px] text-fg-dim">Sign in to see your experiments</p>
-    <p v-if="state.cliCode" class="text-[12px] text-fg-mut -mt-3">
+    <p class="text-[14.5px] text-fg-dim">Sign in to see your experiments</p>
+    <p v-if="state.cliCode" class="text-[13.5px] text-fg-mut -mt-3">
       then approve CLI sign-in code <span class="font-mono text-accent-hi">{{ state.cliCode }}</span>
     </p>
 
     <a
       href="/api/auth/login"
-      class="flex items-center gap-2.5 px-5 py-2 bg-elev border border-border text-[13.5px] text-fg hover:border-fg-dim/50 transition-colors select-none"
+      class="flex items-center gap-2.5 px-5 py-2 bg-elev border border-border text-[15px] text-fg hover:border-fg-dim/50 transition-colors select-none"
     >
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
         <path

@@ -56,7 +56,7 @@ async function update() {
                 formatter: fmtMetric(spec.baseline, spec.unit),
                 position: 'insideEndTop' as const,
                 color: '#8f8f9a',
-                fontSize: 9,
+                fontSize: 11,
               },
               lineStyle: { color: 'rgba(255,255,255,0.22)', type: 'dashed' as const, width: 1 },
             },
@@ -122,7 +122,7 @@ async function update() {
         axisTick: { show: false },
         axisLabel: {
           color: '#5b5b66',
-          fontSize: 10,
+          fontSize: 12,
           formatter: state.xAxis === 'step' ? (v: number) => fmtNum(v) : undefined,
         },
         splitLine: { show: false },
@@ -132,7 +132,7 @@ async function update() {
         scale: !fixed, // a declared range pins the axis; otherwise fit the data
         min: fixed && spec.min !== undefined ? spec.min : undefined,
         max: fixed && spec.max !== undefined ? spec.max : undefined,
-        axisLabel: { color: '#5b5b66', fontSize: 10, formatter: (v: number) => fmtMetric(v, spec?.unit) },
+        axisLabel: { color: '#5b5b66', fontSize: 12, formatter: (v: number) => fmtMetric(v, spec?.unit) },
         splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
         splitNumber: 4,
       },
@@ -141,7 +141,7 @@ async function update() {
         backgroundColor: 'rgba(23,23,28,0.95)',
         borderColor: 'rgba(255,255,255,0.08)',
         padding: [6, 10],
-        textStyle: { color: '#e8e8ec', fontSize: 11 },
+        textStyle: { color: '#e8e8ec', fontSize: 13 },
         extraCssText: 'border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);backdrop-filter:blur(8px)',
         axisPointer: { type: 'line', lineStyle: { color: 'rgba(255,255,255,0.15)' } },
         formatter: (params: unknown) => {
@@ -162,7 +162,7 @@ async function update() {
                 `<span style="margin-left:auto;padding-left:12px;font-family:ui-monospace,SFMono-Regular,monospace">${fmtMetric(p.value[1], spec?.unit)}</span></div>`,
             )
             .join('')
-          return `<div style="font-size:10.5px;color:#5b5b66">${head}</div>${body}`
+          return `<div style="font-size:12px;color:#5b5b66">${head}</div>${body}`
         },
       },
       series,

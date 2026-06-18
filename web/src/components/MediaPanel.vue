@@ -84,7 +84,7 @@ function open(run: Run, item: MediaItem) {
   <div v-if="groups.length" class="p-4 flex flex-col gap-3">
     <div v-if="steps.length > 1" class="flex items-center gap-2.5">
       <input v-model.number="idx" type="range" :min="0" :max="steps.length - 1" step="1" class="flex-1 max-w-120" />
-      <span class="text-[11px] text-fg-dim tabular-nums whitespace-nowrap">step {{ fmtStep(targetStep) }}</span>
+      <span class="text-[12.5px] text-fg-dim tabular-nums whitespace-nowrap">step {{ fmtStep(targetStep) }}</span>
     </div>
 
     <div class="flex flex-col gap-4">
@@ -92,8 +92,8 @@ function open(run: Run, item: MediaItem) {
         <!-- per-run header, shown only when comparing more than one run -->
         <div v-if="grouped" class="flex items-center gap-1.5 px-0.5">
           <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="{ background: runColor(group.run.id) }" />
-          <span class="text-[13px] text-fg font-medium truncate">{{ group.run.name }}</span>
-          <span class="text-[11px] text-fg-dim tabular-nums">{{ group.items.length }}</span>
+          <span class="text-[14.5px] text-fg font-medium truncate">{{ group.run.name }}</span>
+          <span class="text-[12.5px] text-fg-dim tabular-nums">{{ group.items.length }}</span>
         </div>
 
         <div
@@ -114,11 +114,11 @@ function open(run: Run, item: MediaItem) {
             <figcaption class="px-2.5 py-2">
               <div class="flex items-center gap-1.5 min-w-0">
                 <span class="w-2 h-2 rounded-full shrink-0" :style="{ background: runColor(group.run.id) }" />
-                <span class="text-[11.5px] text-fg truncate font-mono">{{ item.key }}</span>
-                <span class="ml-auto text-[10.5px] text-fg-dim tabular-nums shrink-0">{{ fmtStep(item.step) }}</span>
+                <span class="text-[13px] text-fg truncate font-mono">{{ item.key }}</span>
+                <span class="ml-auto text-[12px] text-fg-dim tabular-nums shrink-0">{{ fmtStep(item.step) }}</span>
               </div>
               <!-- run name lives in the section header once grouped; drop it here to avoid repeating it -->
-              <div v-if="grouped ? !!item.caption : true" class="text-[11px] text-fg-mut truncate mt-0.5">
+              <div v-if="grouped ? !!item.caption : true" class="text-[12.5px] text-fg-mut truncate mt-0.5">
                 <template v-if="grouped">{{ item.caption }}</template>
                 <template v-else>{{ group.run.name }}<template v-if="item.caption"> · {{ item.caption }}</template></template>
               </div>
@@ -128,7 +128,7 @@ function open(run: Run, item: MediaItem) {
       </section>
     </div>
   </div>
-  <div v-else class="h-full flex items-center justify-center text-[13px] text-fg-dim">
+  <div v-else class="h-full flex items-center justify-center text-[14.5px] text-fg-dim">
     No images yet — call run.log_image("samples", img)
   </div>
 </template>

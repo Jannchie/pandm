@@ -73,18 +73,18 @@ const badges = computed(() => {
     <section v-for="grp in groups" :key="grp.name || '_'" class="flex flex-col gap-2">
       <h3
         v-if="grp.name"
-        class="text-[11px] text-fg-dim font-semibold uppercase tracking-wide px-0.5"
+        class="text-[12.5px] text-fg-dim font-semibold uppercase tracking-wide px-0.5"
       >
         {{ grp.name }}
       </h3>
       <div class="grid gap-3 mobile-1col" :style="gridStyle">
         <div v-for="key in grp.keys" :key="key" class="card group p-3 pb-1 min-w-0">
           <div class="flex items-center mb-1">
-            <span class="text-[12.5px] text-fg font-medium truncate font-mono">{{ key }}</span>
+            <span class="text-[14px] text-fg font-medium truncate font-mono">{{ key }}</span>
             <div class="flex-1" />
             <span
               v-if="badges[key]"
-              class="flex items-center gap-0.5 text-[11px] font-mono mr-1 shrink-0 tabular-nums"
+              class="flex items-center gap-0.5 text-[12.5px] font-mono mr-1 shrink-0 tabular-nums"
               :style="{ color: badges[key]!.color }"
               :title="badges[key]!.star ? 'leading run' : 'latest'"
             >
@@ -106,7 +106,7 @@ const badges = computed(() => {
               </svg>
             </button>
           </div>
-          <p v-if="descs[key]" class="text-[11px] text-fg-dim leading-snug mb-1 -mt-0.5 line-clamp-2">
+          <p v-if="descs[key]" class="text-[12.5px] text-fg-dim leading-snug mb-1 -mt-0.5 line-clamp-2">
             {{ descs[key] }}
           </p>
           <!-- aspect-ratio (not fixed height) so charts scale with the column width -->
@@ -118,7 +118,7 @@ const badges = computed(() => {
     </section>
   </div>
 
-  <div v-else class="h-full flex items-center justify-center text-[13px] text-fg-dim">
+  <div v-else class="h-full flex items-center justify-center text-[14.5px] text-fg-dim">
     No metrics yet — call run.log({"loss": …})
   </div>
 
@@ -133,8 +133,8 @@ const badges = computed(() => {
         <div class="card w-full max-w-5xl p-4 pb-2 shadow-2xl">
           <div class="flex items-center mb-2">
             <div class="min-w-0">
-              <span class="text-[13px] text-fg font-medium font-mono">{{ state.expandedChart }}</span>
-              <p v-if="state.expandedChart && descs[state.expandedChart]" class="text-[11px] text-fg-dim leading-snug truncate">
+              <span class="text-[14.5px] text-fg font-medium font-mono">{{ state.expandedChart }}</span>
+              <p v-if="state.expandedChart && descs[state.expandedChart]" class="text-[12.5px] text-fg-dim leading-snug truncate">
                 {{ descs[state.expandedChart] }}
               </p>
             </div>

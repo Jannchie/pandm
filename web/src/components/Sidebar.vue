@@ -81,11 +81,11 @@ function confirmDelete(run: Run) {
         <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" />
         <path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
       </svg>
-      <input v-model="state.search" placeholder="Filter runs…" class="w-full h-full bg-transparent border-none rounded-none pl-8 pr-3 text-[13px] text-fg placeholder:text-fg-dim outline-none" />
+      <input v-model="state.search" placeholder="Filter runs…" class="w-full h-full bg-transparent border-none rounded-none pl-8 pr-3 text-[14.5px] text-fg placeholder:text-fg-dim outline-none" />
     </div>
 
     <!-- selection controls -->
-    <div class="flex items-center px-2.5 py-1 text-[11px] text-fg-dim">
+    <div class="flex items-center px-2.5 py-1 text-[12.5px] text-fg-dim">
       <span>{{ state.selected.length }} of {{ visibleRuns.length }} selected</span>
       <div class="flex-1" />
       <button class="hover:text-fg-mut transition-colors" @click="selectAll">all</button>
@@ -112,13 +112,13 @@ function confirmDelete(run: Run) {
           "
         />
         <div class="flex-1 min-w-0">
-          <div class="text-[13px] truncate leading-tight" :class="state.selected.includes(run.id) ? 'text-fg' : 'text-fg-mut'">
+          <div class="text-[14.5px] truncate leading-tight" :class="state.selected.includes(run.id) ? 'text-fg' : 'text-fg-mut'">
             {{ run.name }}
           </div>
-          <div v-if="run.description" class="text-[11px] text-fg-mut/80 truncate leading-tight">
+          <div v-if="run.description" class="text-[12.5px] text-fg-mut/80 truncate leading-tight">
             {{ run.description }}
           </div>
-          <div class="text-[11px] text-fg-dim truncate leading-tight">
+          <div class="text-[12.5px] text-fg-dim truncate leading-tight">
             <template v-if="run.status === 'running' && eta && eta.fraction != null">
               {{ Math.round(eta.fraction * 100) }}%<template v-if="eta.finishAt"> · ~{{ fmtDuration(eta.finishAt - now) }} left</template>
             </template>
@@ -167,7 +167,7 @@ function confirmDelete(run: Run) {
         />
       </div>
 
-      <div v-if="state.ready && visibleRuns.length === 0" class="px-2 py-8 text-center text-[12px] text-fg-dim">
+      <div v-if="state.ready && visibleRuns.length === 0" class="px-2 py-8 text-center text-[13.5px] text-fg-dim">
         {{ state.search ? 'No runs match the filter' : 'No runs yet' }}
       </div>
     </div>

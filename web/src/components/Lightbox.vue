@@ -23,8 +23,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       >
         <img :src="state.lightbox.url" class="max-w-full max-h-[82vh] rounded-lg shadow-2xl" />
         <div class="text-center">
-          <div class="text-[13px] text-fg">{{ state.lightbox.title }}</div>
-          <div class="text-[11.5px] text-fg-dim mt-0.5">{{ state.lightbox.sub }}</div>
+          <div class="text-[14.5px] text-fg">{{ state.lightbox.title }}</div>
+          <div class="text-[13px] text-fg-dim mt-0.5">{{ state.lightbox.sub }}</div>
         </div>
       </div>
     </Transition>

@@ -39,9 +39,9 @@ const statusColor: Record<string, string> = {
   <div class="p-3 md:p-4">
     <!-- desktop: wide comparison table -->
     <div class="card overflow-x-auto hidden md:block">
-      <table class="w-full text-[12.5px] border-collapse whitespace-nowrap">
+      <table class="w-full text-[14px] border-collapse whitespace-nowrap">
         <thead>
-          <tr class="text-fg-dim text-[10.5px] uppercase tracking-wider">
+          <tr class="text-fg-dim text-[12px] uppercase tracking-wider">
             <th colspan="4" class="text-left px-3 pt-3 pb-1 font-medium">Run</th>
             <th v-if="cfgKeys.length" :colspan="cfgKeys.length" class="text-left px-3 pt-3 pb-1 font-medium border-l border-border">
               Config
@@ -73,16 +73,16 @@ const statusColor: Record<string, string> = {
               <div class="flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full shrink-0" :style="{ background: runColor(run.id) }" />
                 <span class="text-fg">{{ run.name }}</span>
-                <span class="text-fg-dim text-[10.5px] font-mono">{{ run.id }}</span>
+                <span class="text-fg-dim text-[12px] font-mono">{{ run.id }}</span>
               </div>
             </td>
             <td class="px-3 py-2.5" :class="statusColor[run.status]">{{ run.status }}</td>
             <td class="px-3 py-2.5 text-fg-mut">{{ fmtClock(run.created_at) }}</td>
             <td class="px-3 py-2.5 text-fg-mut tabular-nums">{{ duration(run) }}</td>
-            <td v-for="(k, i) in cfgKeys" :key="'c' + k" class="px-3 py-2.5 text-fg-mut font-mono text-[12px]" :class="{ 'border-l border-border': i === 0 }">
+            <td v-for="(k, i) in cfgKeys" :key="'c' + k" class="px-3 py-2.5 text-fg-mut font-mono text-[13.5px]" :class="{ 'border-l border-border': i === 0 }">
               {{ cfg(run, k) }}
             </td>
-            <td v-for="(k, i) in sumKeys" :key="'s' + k" class="px-3 py-2.5 text-right text-fg font-mono text-[12px] tabular-nums" :class="{ 'border-l border-border': i === 0 }">
+            <td v-for="(k, i) in sumKeys" :key="'s' + k" class="px-3 py-2.5 text-right text-fg font-mono text-[13.5px] tabular-nums" :class="{ 'border-l border-border': i === 0 }">
               {{ run.summary[k] !== undefined ? fmtNum(run.summary[k]) : '–' }}
             </td>
           </tr>
@@ -95,16 +95,16 @@ const statusColor: Record<string, string> = {
       <div v-for="run in selectedRuns" :key="run.id" class="border-b border-border">
         <div class="flex items-center gap-2 min-w-0 px-1 py-2.5">
           <span class="w-2 h-2 rounded-full shrink-0" :style="{ background: runColor(run.id) }" />
-          <span class="text-fg text-[13px] truncate">{{ run.name }}</span>
-          <span class="text-fg-dim text-[10.5px] font-mono truncate">{{ run.id }}</span>
-          <span class="ml-auto shrink-0 text-[11px] capitalize" :class="statusColor[run.status]">{{ run.status }}</span>
+          <span class="text-fg text-[14.5px] truncate">{{ run.name }}</span>
+          <span class="text-fg-dim text-[12px] font-mono truncate">{{ run.id }}</span>
+          <span class="ml-auto shrink-0 text-[12.5px] capitalize" :class="statusColor[run.status]">{{ run.status }}</span>
         </div>
 
-        <div class="flex items-baseline gap-2 px-1 py-1 border-t border-border/50 text-[12px]">
+        <div class="flex items-baseline gap-2 px-1 py-1 border-t border-border/50 text-[13.5px]">
           <span class="text-fg-dim">created</span>
           <span class="ml-auto text-fg-mut tabular-nums">{{ fmtClock(run.created_at) }}</span>
         </div>
-        <div class="flex items-baseline gap-2 px-1 py-1 border-t border-border/50 text-[12px]">
+        <div class="flex items-baseline gap-2 px-1 py-1 border-t border-border/50 text-[13.5px]">
           <span class="text-fg-dim">duration</span>
           <span class="ml-auto text-fg-mut tabular-nums">{{ duration(run) }}</span>
         </div>
@@ -112,7 +112,7 @@ const statusColor: Record<string, string> = {
         <div
           v-for="k in sumKeys"
           :key="'ms' + k"
-          class="flex items-baseline gap-2 px-1 py-1 border-t border-border/50 text-[12px]"
+          class="flex items-baseline gap-2 px-1 py-1 border-t border-border/50 text-[13.5px]"
         >
           <span class="font-mono text-fg-mut truncate">{{ k }}</span>
           <span class="ml-auto shrink-0 font-mono text-fg tabular-nums">
@@ -123,7 +123,7 @@ const statusColor: Record<string, string> = {
         <div
           v-for="k in cfgKeys"
           :key="'mc' + k"
-          class="flex items-baseline gap-2 px-1 py-1 border-t border-border/50 text-[12px]"
+          class="flex items-baseline gap-2 px-1 py-1 border-t border-border/50 text-[13.5px]"
         >
           <span class="font-mono text-fg-dim truncate">{{ k }}</span>
           <span class="ml-auto shrink-0 font-mono text-fg-mut truncate max-w-[60%] text-right">{{ cfg(run, k) }}</span>

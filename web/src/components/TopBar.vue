@@ -65,14 +65,14 @@ async function rotateKey() {
           stroke-linejoin="round"
         />
       </svg>
-      <span class="font-semibold tracking-tight text-[15px]">pandm</span>
+      <span class="font-semibold tracking-tight text-[17px]">pandm</span>
     </div>
 
     <!-- breadcrumb: project -->
-    <span class="text-fg-dim/60 text-[13px] select-none">/</span>
+    <span class="text-fg-dim/60 text-[14.5px] select-none">/</span>
     <div class="relative">
       <button
-        class="flex items-center gap-1.5 pl-2 pr-1.5 py-1 text-[13px] hover:bg-elev transition-colors cursor-pointer"
+        class="flex items-center gap-1.5 pl-2 pr-1.5 py-1 text-[14.5px] hover:bg-elev transition-colors cursor-pointer"
         :class="state.project ? 'text-fg' : 'text-fg-dim'"
         @click="projOpen = !projOpen"
       >
@@ -90,12 +90,12 @@ async function rotateKey() {
         <div
           v-for="p in state.projects"
           :key="p.project"
-          class="group flex items-center px-3 py-1.5 text-[12.5px] transition-colors cursor-pointer"
+          class="group flex items-center px-3 py-1.5 text-[14px] transition-colors cursor-pointer"
           :class="p.project === state.project ? 'text-fg bg-elev/70' : 'text-fg-mut hover:bg-elev/40 hover:text-fg'"
           @click="pickProject(p.project)"
         >
           <span class="truncate">{{ p.project }}</span>
-          <span class="ml-auto pl-3 text-[11px] text-fg-dim shrink-0 group-hover:hidden">{{ p.runs }}</span>
+          <span class="ml-auto pl-3 text-[12.5px] text-fg-dim shrink-0 group-hover:hidden">{{ p.runs }}</span>
           <button
             class="ml-auto pl-3 hidden group-hover:block text-fg-dim hover:text-err transition-colors shrink-0 cursor-pointer"
             title="Delete project"
@@ -112,17 +112,17 @@ async function rotateKey() {
             </svg>
           </button>
         </div>
-        <div v-if="state.projects.length === 0" class="px-3 py-4 text-center text-[12px] text-fg-dim">
+        <div v-if="state.projects.length === 0" class="px-3 py-4 text-center text-[13.5px] text-fg-dim">
           No projects yet
         </div>
       </div>
     </div>
 
     <!-- breadcrumb: runs -->
-    <span class="hidden sm:inline text-fg-dim/60 text-[13px] select-none">/</span>
+    <span class="hidden sm:inline text-fg-dim/60 text-[14.5px] select-none">/</span>
     <div class="relative hidden sm:block">
       <button
-        class="flex items-center gap-1.5 pl-2 pr-1.5 py-1 text-[13px] hover:bg-elev transition-colors cursor-pointer"
+        class="flex items-center gap-1.5 pl-2 pr-1.5 py-1 text-[14.5px] hover:bg-elev transition-colors cursor-pointer"
         :class="state.selected.length ? 'text-fg' : 'text-fg-dim'"
         @click="runsOpen = !runsOpen"
       >
@@ -137,7 +137,7 @@ async function rotateKey() {
         v-if="runsOpen"
         class="absolute left-0 top-full mt-1 w-72 max-h-90 overflow-y-auto bg-panel border border-border shadow-2xl z-50 py-1"
       >
-        <div class="flex items-center px-3 py-1 text-[11px] text-fg-dim">
+        <div class="flex items-center px-3 py-1 text-[12.5px] text-fg-dim">
           <span>{{ state.selected.length }} of {{ state.runs.length }} selected</span>
           <div class="flex-1" />
           <button class="hover:text-fg-mut transition-colors cursor-pointer" @click="selectAll">all</button>
@@ -160,19 +160,19 @@ async function rotateKey() {
             "
           />
           <span
-            class="text-[12.5px] truncate"
+            class="text-[14px] truncate"
             :class="state.selected.includes(run.id) ? 'text-fg' : 'text-fg-mut'"
           >{{ run.name }}</span>
           <span v-if="run.status === 'running'" class="ml-auto w-1.5 h-1.5 rounded-full bg-ok pulse shrink-0" />
         </div>
-        <div v-if="state.runs.length === 0" class="px-3 py-4 text-center text-[12px] text-fg-dim">No runs yet</div>
+        <div v-if="state.runs.length === 0" class="px-3 py-4 text-center text-[13.5px] text-fg-dim">No runs yet</div>
       </div>
     </div>
 
     <div class="flex-1" />
 
     <!-- status + auto-refresh switch -->
-    <div class="flex items-center gap-2 text-[12px] text-fg-dim">
+    <div class="flex items-center gap-2 text-[13.5px] text-fg-dim">
       <template v-if="state.offline">
         <span class="w-1.5 h-1.5 rounded-full bg-err" />
         <span class="text-err">offline</span>
@@ -208,7 +208,7 @@ async function rotateKey() {
           :src="state.auth.user.avatar_url"
           class="w-6 h-6 rounded-full border border-border"
         />
-        <span v-else class="w-6 h-6 rounded-full bg-elev text-[11px] flex items-center justify-center text-fg-mut">
+        <span v-else class="w-6 h-6 rounded-full bg-elev text-[12.5px] flex items-center justify-center text-fg-mut">
           {{ state.auth.user.login.slice(0, 1).toUpperCase() }}
         </span>
       </button>
@@ -216,16 +216,16 @@ async function rotateKey() {
       <div v-if="userOpen" class="fixed inset-0 z-40" @click="userOpen = false" />
       <div v-if="userOpen" class="absolute right-0 top-full mt-1 w-56 bg-panel border border-border shadow-2xl z-50 py-1">
         <div class="px-3 py-2 border-b border-border">
-          <div class="text-[12.5px] text-fg">{{ state.auth.user.name || state.auth.user.login }}</div>
-          <div class="text-[11px] text-fg-dim">@{{ state.auth.user.login }}</div>
+          <div class="text-[14px] text-fg">{{ state.auth.user.name || state.auth.user.login }}</div>
+          <div class="text-[12.5px] text-fg-dim">@{{ state.auth.user.login }}</div>
         </div>
-        <button class="w-full text-left px-3 py-1.5 text-[12.5px] text-fg-mut hover:bg-elev/40 hover:text-fg transition-colors cursor-pointer" @click="copyKey">
+        <button class="w-full text-left px-3 py-1.5 text-[14px] text-fg-mut hover:bg-elev/40 hover:text-fg transition-colors cursor-pointer" @click="copyKey">
           {{ copied ? 'Copied!' : 'Copy API key' }}
         </button>
-        <button class="w-full text-left px-3 py-1.5 text-[12.5px] text-fg-mut hover:bg-elev/40 hover:text-fg transition-colors cursor-pointer" @click="rotateKey">
+        <button class="w-full text-left px-3 py-1.5 text-[14px] text-fg-mut hover:bg-elev/40 hover:text-fg transition-colors cursor-pointer" @click="rotateKey">
           Rotate API key
         </button>
-        <button class="w-full text-left px-3 py-1.5 text-[12.5px] text-fg-mut hover:bg-elev/40 hover:text-err transition-colors cursor-pointer" @click="signOut">
+        <button class="w-full text-left px-3 py-1.5 text-[14px] text-fg-mut hover:bg-elev/40 hover:text-err transition-colors cursor-pointer" @click="signOut">
           Sign out
         </button>
       </div>
