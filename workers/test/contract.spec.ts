@@ -298,6 +298,19 @@ describe('run lifecycle', () => {
     run = (await (await api('/api/runs/meta0001', { headers: keyOf(alice) })).json()) as any
     expect(run.metric_meta).toEqual(spec)
   })
+
+  it('accepts live metric_meta pushes (define_metric) before finish, and merges', async () => {
+    await post('/api/runs', { id: 'meta0002', project: 'p', name: 'm' }, keyOf(alice))
+    await post('/api/runs/meta0002/meta', { metric_meta: { win_rate: { min: 0, max: 1, unit: 'percent' } } }, keyOf(alice))
+    let run = (await (await api('/api/runs/meta0002', { headers: keyOf(alice) })).json()) as any
+    expect(run.status).toBe('running') // visible while alive, not waiting for finish
+    expect(run.metric_meta.win_rate).toEqual({ min: 0, max: 1, unit: 'percent' })
+
+    // a second push merges, last write wins per key
+    await post('/api/runs/meta0002/meta', { metric_meta: { loss: { goal: 'min' } } }, keyOf(alice))
+    run = (await (await api('/api/runs/meta0002', { headers: keyOf(alice) })).json()) as any
+    expect(Object.keys(run.metric_meta).sort()).toEqual(['loss', 'win_rate'])
+  })
 })
 
 describe('summary materialization', () => {

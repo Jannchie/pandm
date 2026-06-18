@@ -72,8 +72,9 @@ run.define_metric("acc", min=0, max=1)          # bounded score, plain 0..1 axis
 - `baseline` draws a dashed reference line — chance level (`0.5` for win-rate), a prior SOTA.
 
 Reach for it whenever "good" has a known scale (RL win/success rates, classification
-accuracy, anything in `0..1`). Locally the spec applies immediately; in cloud mode it
-is attached when the run finishes. The backend write never interrupts training.
+accuracy, anything in `0..1`). The spec applies immediately — locally, and in cloud
+mode it is pushed live to the server (like progress), so a running run shows the fixed
+axis right away. The backend write never interrupts training.
 
 ## Behaviour that matters
 

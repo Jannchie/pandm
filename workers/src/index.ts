@@ -231,6 +231,17 @@ app.post('/api/runs/:id/progress', async (c) => {
   return c.json({ ok: true })
 })
 
+app.post('/api/runs/:id/meta', async (c) => {
+  const runId = c.req.param('id')
+  const guard = await ownerGuard(c, runId)
+  if (guard) return guard
+  const body = await c.req.json<{ metric_meta?: Record<string, unknown> }>()
+  if (body.metric_meta && Object.keys(body.metric_meta).length > 0) {
+    await db.setMetricMeta(c.env.DB, runId, body.metric_meta)
+  }
+  return c.json({ ok: true })
+})
+
 app.post('/api/runs/:id/finish', async (c) => {
   const runId = c.req.param('id')
   const guard = await ownerGuard(c, runId)

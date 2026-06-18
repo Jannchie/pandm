@@ -342,8 +342,9 @@ class Run:
 
         `unit="percent"` defaults the range to 0..1 and shows 0.73 as 73%. `goal` is
         "max" or "min". `baseline` draws a dashed reference line (e.g. chance level).
-        Locally the spec applies immediately; in cloud mode it is attached when the
-        run finishes. The backend write is best-effort and never interrupts training."""
+        The spec applies immediately — locally, and in cloud mode it is pushed live to
+        the server (like progress). The backend write is best-effort, never interrupts
+        training."""
         spec: dict[str, Any] = {}
         if unit == "percent" and min is None and max is None:
             min, max = 0.0, 1.0

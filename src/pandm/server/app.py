@@ -52,6 +52,10 @@ class ProgressIn(BaseModel):
     ts: float | None = None
 
 
+class MetaIn(BaseModel):
+    metric_meta: dict[str, Any]  # per-metric display specs (run.define_metric), merged in
+
+
 class FinishIn(BaseModel):
     status: str = "finished"
     finished_at: float | None = None
@@ -211,6 +215,12 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
     ) -> dict[str, bool]:
         check_owner(run_id, user)
         store.update_progress(run_id, body.current, body.total, body.ts)
+        return {"ok": True}
+
+    @app.post("/api/runs/{run_id}/meta")
+    def run_meta(run_id: str, body: MetaIn, user: dict | None = Depends(require_key)) -> dict[str, bool]:
+        check_owner(run_id, user)
+        store.set_metric_meta(run_id, body.metric_meta)  # merges, last write wins per key
         return {"ok": True}
 
     @app.post("/api/runs/{run_id}/finish")

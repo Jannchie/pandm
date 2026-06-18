@@ -206,10 +206,13 @@ class RemoteBackend:
         return True
 
     def set_metric_meta(self, run_id: str, specs: dict[str, Any]) -> bool:
-        """Stash per-metric display specs; like summary they ride along with finish_run
-        rather than needing their own endpoint."""
+        """Push display specs live (mirrors progress) so a running run's fixed axis and
+        baseline reach the dashboard right away. Also stashed as the finish / `pandm
+        sync` backstop for anything that couldn't be pushed while offline."""
         self._metric_meta.update(specs)
-        return True
+        if not self._ensure_created():
+            return False
+        return self._request("POST", f"/api/runs/{run_id}/meta", json={"metric_meta": specs}) is not None
 
     def finish_run(
         self,

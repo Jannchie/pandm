@@ -310,6 +310,11 @@ export const updateProgress = (db: D1Database, runId: string, current: number, t
         .bind(current, total, ts, ts, runId)
         .run()
 
+/** Merge per-metric display specs into runs.metric_meta — run.define_metric pushed
+ *  live (like progress), so a running run's fixed axis/baseline show up right away. */
+export const setMetricMeta = (db: D1Database, runId: string, specs: Record<string, unknown>) =>
+  db.prepare('UPDATE runs SET metric_meta = json_patch(metric_meta, ?1) WHERE id = ?2').bind(JSON.stringify(specs), runId).run()
+
 export const finishRun = (
   db: D1Database,
   runId: string,
@@ -318,9 +323,9 @@ export const finishRun = (
   metricMeta?: Record<string, unknown> | null,
 ) => {
   const ts = finishedAt ?? now()
-  // metric_meta is declared up front but only reaches the cloud at finish (no
-  // separate endpoint); overwrite with the full author-sent map, skip if empty so
-  // a re-finish can't blank it.
+  // metric_meta is pushed live via POST /meta while the run is alive; this
+  // finish-time write is the offline / `pandm sync` backstop — overwrite with the
+  // full author-sent map, skip if empty so a re-finish can't blank it.
   if (metricMeta && Object.keys(metricMeta).length > 0) {
     return db
       .prepare('UPDATE runs SET status = ?1, finished_at = ?2, updated_at = ?3, metric_meta = ?4 WHERE id = ?5')

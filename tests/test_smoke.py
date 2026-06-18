@@ -385,3 +385,24 @@ def test_finish_ingests_metric_meta(data_dir):
     body = {"status": "finished", "metric_meta": spec}
     assert client.post("/api/runs/m1/finish", json=body, headers=headers).status_code == 200
     assert client.get("/api/runs/m1").json()["metric_meta"] == spec
+
+
+def test_meta_endpoint_merges_live(data_dir):
+    client = TestClient(create_app(data_dir, api_key="k"))
+    headers = {"x-api-key": "k"}
+    client.post("/api/runs", json={"id": "mt1", "project": "p", "name": "n"}, headers=headers)
+
+    # pushed while the run is still running — the dashboard sees specs without waiting for finish
+    r = client.post(
+        "/api/runs/mt1/meta",
+        json={"metric_meta": {"win_rate": {"min": 0, "max": 1, "unit": "percent"}}},
+        headers=headers,
+    )
+    assert r.status_code == 200
+    run = client.get("/api/runs/mt1").json()
+    assert run["status"] == "running"  # not finished
+    assert run["metric_meta"]["win_rate"] == {"min": 0, "max": 1, "unit": "percent"}
+
+    # a second push merges (last write wins per key), never clobbers
+    client.post("/api/runs/mt1/meta", json={"metric_meta": {"loss": {"goal": "min"}}}, headers=headers)
+    assert set(client.get("/api/runs/mt1").json()["metric_meta"]) == {"win_rate", "loss"}

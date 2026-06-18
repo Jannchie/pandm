@@ -82,6 +82,7 @@ class Uploader:
         self._stop = threading.Event()
         self._last_contact = 0.0
         self._pending_progress: tuple[float, float | None, float] | None = None  # latest unpushed (current, total, ts)
+        self._pending_meta: dict[str, Any] | None = None  # latest unpushed display specs (define_metric)
         self._thread = threading.Thread(target=self._loop, daemon=True, name=f"pandm-sync-{run_id}")
         self._thread.start()
 
@@ -92,6 +93,10 @@ class Uploader:
         self._pending_progress = (current, total, ts)  # overwrite: only the newest matters
         self._wake.set()
 
+    def set_meta(self, specs: dict[str, Any]) -> None:
+        self._pending_meta = {**(self._pending_meta or {}), **specs}  # accumulate until pushed
+        self._wake.set()
+
     def _push_progress(self) -> None:
         prog = self._pending_progress
         if prog is None:
@@ -99,6 +104,15 @@ class Uploader:
         if self.remote.update_progress(self.run_id, *prog):
             if self._pending_progress == prog:  # leave a newer value queued for the next pump
                 self._pending_progress = None
+            self._last_contact = time.monotonic()
+
+    def _push_meta(self) -> None:
+        meta = self._pending_meta
+        if not meta:
+            return
+        if self.remote.set_metric_meta(self.run_id, meta):
+            if self._pending_meta == meta:  # leave newer specs queued for the next pump
+                self._pending_meta = None
             self._last_contact = time.monotonic()
 
     def _pump(self) -> bool:
@@ -118,6 +132,7 @@ class Uploader:
             try:
                 self._pump()
                 self._push_progress()
+                self._push_meta()  # define_metric specs, pushed live like progress
                 # keep the server's staleness detection fed during quiet stretches
                 if time.monotonic() - self._last_contact >= _REMOTE_HEARTBEAT_EVERY:
                     if self.remote.heartbeat(self.run_id, time.time()):
@@ -216,7 +231,9 @@ class DualBackend:
         self.local.set_summary(run_id, values)  # remote upload rides along with finish (§ no separate endpoint)
 
     def set_metric_meta(self, run_id: str, specs: dict[str, Any]) -> None:
-        self.local.set_metric_meta(run_id, specs)  # the uploader reads it from the local row at finish
+        self.local.set_metric_meta(run_id, specs)
+        if self._uploader:
+            self._uploader.set_meta(specs)  # pushed live in the uploader loop, like progress
 
     def finish_run(self, run_id: str, status: str, finished_at: float) -> None:
         self.local.finish_run(run_id, status, finished_at)
@@ -236,6 +253,8 @@ def _sync_one(
     try:
         remote = RemoteBackend(server, api_key, transport=transport)
         remote.create_run(run_id, run["project"], run["name"], run["config"], run["created_at"])
+        if run["metric_meta"]:
+            remote.set_metric_meta(run_id, run["metric_meta"])  # display specs, even while still running
         if not pump_run(store, remote, run_id):
             return "server unreachable"
         if run["status"] != "running":
