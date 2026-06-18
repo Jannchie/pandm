@@ -16,6 +16,7 @@ pip install pandm
 import pandm
 
 run = pandm.init(project="mnist", config={"lr": 1e-3, "batch_size": 64})
+run.define_metric("train/acc", unit="percent", goal="max")  # fixed 0–100% axis, leading run marked
 for step in range(1000):
     loss, acc = train_step()
     run.log({"train/loss": loss, "train/acc": acc}, step=step)
@@ -133,6 +134,7 @@ Without OAuth env vars the server falls back to single-tenant mode — `pandm se
 | `run.log(metrics, step=None)` | log scalar metrics |
 | `run.log_image(key, image, step=None, caption=None)` | log an image |
 | `run.summary(values)` | record run-level scalars (the chosen checkpoint's metric row); merges across calls |
+| `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None)` | declare a metric's display: fixed axis, `unit="percent"`, `baseline` line, `goal` for the leading run |
 | `run.finish(status="finished")` | end the run (also via `atexit`) |
 | `GET /api/docs` | REST API reference on any running server |
 

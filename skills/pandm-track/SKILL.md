@@ -47,11 +47,33 @@ with pandm.init(project="mnist", config={"lr": 1e-3}) as run:
 | `run.log(metrics: dict, step=None)` | Log scalar metrics. `step` defaults to an internal per-run counter. |
 | `run.log_image(key, image, step=None, caption=None)` | Log one image. `step` defaults to the latest metric step. |
 | `run.set_progress(current, total=None)` | Report progress in a custom unit (epochs, samples) for the ETA. |
+| `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None)` | Declare how the dashboard renders a metric (fixed axis, percent, baseline, goal). |
 | `run.finish(status="finished")` | End the run. Also runs automatically at process exit. |
 
 Module-level `pandm.log(...)`, `pandm.log_image(...)`, `pandm.set_progress(...)`,
-and `pandm.finish(...)` act on the most recently started run — convenient when
-passing the `run` object around is awkward.
+`pandm.define_metric(...)`, and `pandm.finish(...)` act on the most recently started
+run — convenient when passing the `run` object around is awkward.
+
+## Declaring how a metric should look
+
+Anything bounded — a win/success rate, accuracy, precision, any `[0,1]` score —
+reads better on a fixed axis than on one that auto-rescales to noise. Say so once,
+before the loop: `define_metric` pins the y-axis, can show `73%` instead of `0.73`,
+draws a baseline, and marks the leading run when you compare several.
+
+```python
+run.define_metric("eval/win_rate", unit="percent", goal="max", baseline=0.5)
+run.define_metric("acc", min=0, max=1)          # bounded score, plain 0..1 axis
+```
+
+- `unit="percent"` defaults the range to `0..1` and formats values as percentages.
+- `min` / `max` pin the y-axis (either or both); omit them and the axis fits the data.
+- `goal` (`"max"` / `"min"`) marks which run is currently leading when several overlap.
+- `baseline` draws a dashed reference line — chance level (`0.5` for win-rate), a prior SOTA.
+
+Reach for it whenever "good" has a known scale (RL win/success rates, classification
+accuracy, anything in `0..1`). Locally the spec applies immediately; in cloud mode it
+is attached when the run finishes. The backend write never interrupts training.
 
 ## Behaviour that matters
 
