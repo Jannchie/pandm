@@ -43,11 +43,11 @@ with pandm.init(project="mnist", config={"lr": 1e-3}) as run:
 
 | Call | Purpose |
 |---|---|
-| `pandm.init(project="default", name=None, config=None, *, total_steps=None, directory=None, remote=None, api_key=None)` | Start a run; returns a `Run` (also a context manager). |
+| `pandm.init(project="default", name=None, config=None, *, description=None, total_steps=None, directory=None, remote=None, api_key=None)` | Start a run; returns a `Run` (also a context manager). `description` = a one-line subtitle. |
 | `run.log(metrics: dict, step=None)` | Log scalar metrics. `step` defaults to an internal per-run counter. |
 | `run.log_image(key, image, step=None, caption=None)` | Log one image. `step` defaults to the latest metric step. |
 | `run.set_progress(current, total=None)` | Report progress in a custom unit (epochs, samples) for the ETA. |
-| `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None)` | Declare how the dashboard renders a metric (fixed axis, percent, baseline, goal). |
+| `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None, description=None)` | Declare how the dashboard renders a metric (fixed axis, percent, baseline, goal, subtitle). |
 | `run.finish(status="finished")` | End the run. Also runs automatically at process exit. |
 
 Module-level `pandm.log(...)`, `pandm.log_image(...)`, `pandm.set_progress(...)`,
@@ -62,7 +62,8 @@ before the loop: `define_metric` pins the y-axis, can show `73%` instead of `0.7
 draws a baseline, and marks the leading run when you compare several.
 
 ```python
-run.define_metric("eval/win_rate", unit="percent", goal="max", baseline=0.5)
+run.define_metric("eval/win_rate", unit="percent", goal="max", baseline=0.5,
+                  description="对局胜率，越高越好（0.5 为随机基线）")
 run.define_metric("acc", min=0, max=1)          # bounded score, plain 0..1 axis
 ```
 
@@ -70,11 +71,26 @@ run.define_metric("acc", min=0, max=1)          # bounded score, plain 0..1 axis
 - `min` / `max` pin the y-axis (either or both); omit them and the axis fits the data.
 - `goal` (`"max"` / `"min"`) marks which run is currently leading when several overlap.
 - `baseline` draws a dashed reference line — chance level (`0.5` for win-rate), a prior SOTA.
+- `description` is a one-line note shown under the chart, for metrics whose name doesn't speak for itself.
 
 Reach for it whenever "good" has a known scale (RL win/success rates, classification
 accuracy, anything in `0..1`). The spec applies immediately — locally, and in cloud
 mode it is pushed live to the server (like progress), so a running run shows the fixed
 axis right away. The backend write never interrupts training.
+
+## Subtitles: describe runs and metrics in the reader's language
+
+A reader scanning the dashboard often doesn't know what `eval/win_rate` or a run named
+`ppo-7` means. Give them a one-line subtitle:
+
+- **Run** — `pandm.init(..., description="...")`: what this run is (the idea being tested,
+  the key knob, the dataset). Shown under the run name in the sidebar.
+- **Metric** — `define_metric(key, description="...")`: what the metric measures and which
+  way is good. Shown under the chart.
+
+> Write both in the **language the user is conversing with you in**, not English by
+> default — the description exists for that reader. Keep it to one plain line; the name,
+> axis, and config already carry the mechanics, so don't restate them.
 
 ## Behaviour that matters
 

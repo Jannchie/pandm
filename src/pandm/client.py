@@ -119,7 +119,13 @@ class RemoteBackend:
         return self._created
 
     def create_run(
-        self, run_id: str, project: str, name: str, config: dict[str, Any], created_at: float | None = None
+        self,
+        run_id: str,
+        project: str,
+        name: str,
+        config: dict[str, Any],
+        created_at: float | None = None,
+        description: str | None = None,
     ) -> None:
         self._create_payload = {
             "id": run_id,
@@ -128,6 +134,8 @@ class RemoteBackend:
             "config": config,
             "created_at": created_at if created_at is not None else time.time(),
         }
+        if description:
+            self._create_payload["description"] = description
         self._ensure_created()
 
     def run_exists(self, run_id: str) -> bool:

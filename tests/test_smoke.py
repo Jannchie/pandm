@@ -362,16 +362,27 @@ def test_finish_ingests_summary(data_dir):
 
 
 def test_define_metric_local(data_dir):
-    run = pandm.init(project="p", name="dm", directory=data_dir, remote=False)
-    run.define_metric("eval/win_rate", unit="percent", goal="max", baseline=0.5)
+    run = pandm.init(
+        project="p", name="dm", description="MNIST 基线扫参", directory=data_dir, remote=False
+    )
+    run.define_metric("eval/win_rate", unit="percent", goal="max", baseline=0.5, description="对局胜率，越高越好")
     run.define_metric("acc", min=0, max=1)  # a bounded [0,1] score
     with pytest.raises(ValueError):
         run.define_metric("bad", goal="up")  # goal must be 'max' or 'min'
     run.log({"eval/win_rate": 0.7, "acc": 0.9})
     run.finish()
 
-    meta = _get_run(LocalStore(data_dir), run.id)["metric_meta"]
-    assert meta["eval/win_rate"] == {"min": 0.0, "max": 1.0, "unit": "percent", "goal": "max", "baseline": 0.5}
+    r = _get_run(LocalStore(data_dir), run.id)
+    assert r["description"] == "MNIST 基线扫参"  # run subtitle, written in the user's language
+    meta = r["metric_meta"]
+    assert meta["eval/win_rate"] == {
+        "min": 0.0,
+        "max": 1.0,
+        "unit": "percent",
+        "goal": "max",
+        "baseline": 0.5,
+        "description": "对局胜率，越高越好",
+    }
     assert meta["acc"] == {"min": 0.0, "max": 1.0}  # unit="percent" not set -> just the fixed range
     assert "bad" not in meta  # the rejected call never reached the store
 

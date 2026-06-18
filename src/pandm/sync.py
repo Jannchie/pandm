@@ -72,11 +72,11 @@ def pump_run(store: LocalStore, remote: RemoteBackend, run_id: str) -> bool:
 class Uploader:
     """Background sync thread for one live run."""
 
-    def __init__(self, root: Path, remote: RemoteBackend, run_id: str, create: tuple[str, str, dict, float]):
+    def __init__(self, root: Path, remote: RemoteBackend, run_id: str, create: tuple[str, str, dict, float, str]):
         self.store = LocalStore(root)  # own connection — never contends with the SDK's flush path
         self.remote = remote
         self.run_id = run_id
-        self._create = create  # (project, name, config, created_at): replayed in-thread, never blocks init
+        self._create = create  # (project, name, config, created_at, description): replayed in-thread, never blocks init
         self.owner = _lease_owner()
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -124,8 +124,8 @@ class Uploader:
         return drained
 
     def _loop(self) -> None:
-        project, name, config, created_at = self._create
-        self.remote.create_run(self.run_id, project, name, config, created_at)
+        project, name, config, created_at, description = self._create
+        self.remote.create_run(self.run_id, project, name, config, created_at, description)
         while not self._stop.is_set():
             self._wake.wait(timeout=_PUMP_INTERVAL)
             self._wake.clear()
@@ -183,12 +183,16 @@ class DualBackend:
         self._transport = transport
         self._uploader: Uploader | None = None
 
-    def create_run(self, run_id: str, project: str, name: str, config: dict[str, Any]) -> None:
+    def create_run(
+        self, run_id: str, project: str, name: str, config: dict[str, Any], description: str | None = None
+    ) -> None:
         now = time.time()
-        self.local.create_run(run_id, project, name, config, created_at=now)
+        self.local.create_run(run_id, project, name, config, created_at=now, description=description)
         self.local.ensure_sync_state(run_id)
         remote = RemoteBackend(self._server, self._api_key, transport=self._transport)
-        self._uploader = Uploader(self._root, remote, run_id, create=(project, name, config, now))
+        self._uploader = Uploader(
+            self._root, remote, run_id, create=(project, name, config, now, description or "")
+        )
 
     def run_exists(self, run_id: str) -> bool:
         return self.local.run_exists(run_id)  # local-first: resume continues the local run
@@ -252,7 +256,9 @@ def _sync_one(
         return "busy (live uploader holds the lease)"
     try:
         remote = RemoteBackend(server, api_key, transport=transport)
-        remote.create_run(run_id, run["project"], run["name"], run["config"], run["created_at"])
+        remote.create_run(
+            run_id, run["project"], run["name"], run["config"], run["created_at"], run["description"]
+        )
         if run["metric_meta"]:
             remote.set_metric_meta(run_id, run["metric_meta"])  # display specs, even while still running
         if not pump_run(store, remote, run_id):

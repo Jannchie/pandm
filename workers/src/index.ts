@@ -162,14 +162,21 @@ app.get('/api/media/:runId/:filename', async (c) => {
 // --------------------------------------------------------------- ingest API
 
 app.post('/api/runs', async (c) => {
-  const body = await c.req.json<{ id?: string; project?: string; name?: string; config?: unknown; created_at?: number }>()
+  const body = await c.req.json<{
+    id?: string
+    project?: string
+    name?: string
+    description?: string
+    config?: unknown
+    created_at?: number
+  }>()
   const runId = body.id || db.newRunId()
   // a re-created id must still be yours, or someone could attach to a foreign run
   const owner = await db.runOwner(c.env.DB, runId)
   if (owner !== null && owner !== c.get('user').id) return detail(c, 404, 'run not found')
   await db.createRun(
     c.env.DB, runId, body.project ?? 'default', body.name ?? 'unnamed',
-    body.config ?? {}, body.created_at ?? null, c.get('user').id,
+    body.config ?? {}, body.created_at ?? null, c.get('user').id, body.description ?? '',
   )
   return c.json({ id: runId })
 })

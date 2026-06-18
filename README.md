@@ -15,7 +15,7 @@ pip install pandm
 ```python
 import pandm
 
-run = pandm.init(project="mnist", config={"lr": 1e-3, "batch_size": 64})
+run = pandm.init(project="mnist", config={"lr": 1e-3, "batch_size": 64}, description="baseline sweep")
 run.define_metric("train/acc", unit="percent", goal="max")  # fixed 0–100% axis, leading run marked
 for step in range(1000):
     loss, acc = train_step()
@@ -130,11 +130,11 @@ Without OAuth env vars the server falls back to single-tenant mode — `pandm se
 
 | | |
 |---|---|
-| `pandm.init(project, name=None, config=None, *, id=None, resume=False, total_steps=None, directory=None, remote=None, api_key=None)` | start (or resume) a run |
+| `pandm.init(project, name=None, config=None, *, description=None, id=None, resume=False, total_steps=None, directory=None, remote=None, api_key=None)` | start (or resume) a run; `description` is a one-line subtitle |
 | `run.log(metrics, step=None)` | log scalar metrics |
 | `run.log_image(key, image, step=None, caption=None)` | log an image |
 | `run.summary(values)` | record run-level scalars (the chosen checkpoint's metric row); merges across calls |
-| `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None)` | declare a metric's display: fixed axis, `unit="percent"`, `baseline` line, `goal` for the leading run |
+| `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None, description=None)` | declare a metric's display: fixed axis, `unit="percent"`, `baseline` line, `goal` for the leading run, `description` subtitle |
 | `run.finish(status="finished")` | end the run (also via `atexit`) |
 | `GET /api/docs` | REST API reference on any running server |
 

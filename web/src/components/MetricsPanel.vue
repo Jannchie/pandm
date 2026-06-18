@@ -40,6 +40,16 @@ const gridStyle = computed(() => ({
 // header badge for a declared metric: the latest value (percent-aware), and when a
 // goal is declared across several runs, the leading run's value + colour + a ★.
 // Driven by the stats already in hand (stats[key].last) — no extra fetch.
+// one-line metric note (define_metric(description=...)), shown under the key
+const descs = computed(() => {
+  const out: Record<string, string> = {}
+  for (const key of unionKeys.value) {
+    const d = metricSpec(key)?.description
+    if (d) out[key] = d
+  }
+  return out
+})
+
 const badges = computed(() => {
   const out: Record<string, { value: string; color: string; star: boolean } | null> = {}
   const multi = selectedRuns.value.length > 1
@@ -96,6 +106,9 @@ const badges = computed(() => {
               </svg>
             </button>
           </div>
+          <p v-if="descs[key]" class="text-[11px] text-fg-dim leading-snug mb-1 -mt-0.5 line-clamp-2">
+            {{ descs[key] }}
+          </p>
           <!-- aspect-ratio (not fixed height) so charts scale with the column width -->
           <div class="aspect-video">
             <MetricChart :metric-key="key" />
@@ -119,7 +132,12 @@ const badges = computed(() => {
       >
         <div class="card w-full max-w-5xl p-4 pb-2 shadow-2xl">
           <div class="flex items-center mb-2">
-            <span class="text-[13px] text-fg font-medium font-mono">{{ state.expandedChart }}</span>
+            <div class="min-w-0">
+              <span class="text-[13px] text-fg font-medium font-mono">{{ state.expandedChart }}</span>
+              <p v-if="state.expandedChart && descs[state.expandedChart]" class="text-[11px] text-fg-dim leading-snug truncate">
+                {{ descs[state.expandedChart] }}
+              </p>
+            </div>
             <div class="flex-1" />
             <button class="text-fg-dim hover:text-fg transition-colors cursor-pointer" @click="state.expandedChart = null">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none">

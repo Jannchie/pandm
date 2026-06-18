@@ -267,9 +267,14 @@ describe('device flow (`pandm login`)', () => {
 
 describe('run lifecycle', () => {
   it('preserves created_at, finish status, and detects stale runs', async () => {
-    await post('/api/runs', { id: 'life0001', project: 'p', name: 'life', created_at: 1000.5 }, keyOf(alice))
+    await post(
+      '/api/runs',
+      { id: 'life0001', project: 'p', name: 'life', description: 'smoke run', created_at: 1000.5 },
+      keyOf(alice),
+    )
     let run = (await (await api('/api/runs/life0001', { headers: keyOf(alice) })).json()) as any
     expect(run.created_at).toBe(1000.5)
+    expect(run.description).toBe('smoke run') // run subtitle, carried at create
     expect(run.status).toBe('crashed') // updated_at == 1000.5 is way past STALE_AFTER
 
     await api('/api/runs/life0001/heartbeat', { method: 'POST', headers: keyOf(alice) })

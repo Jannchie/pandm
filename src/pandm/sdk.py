@@ -143,6 +143,7 @@ def init(
     name: str | None = None,
     config: dict[str, Any] | None = None,
     *,
+    description: str | None = None,
     id: str | None = None,
     resume: bool | str = False,
     total_steps: int | None = None,
@@ -182,7 +183,7 @@ def init(
         backend = LocalStore(resolve_dir(directory))
     run = Run(
         backend, project=project, name=name, config=config or {},
-        total_steps=total_steps, run_id=id, resume=resume,
+        description=description, total_steps=total_steps, run_id=id, resume=resume,
     )
     _active_runs.append(run)
     _register_atexit()
@@ -233,6 +234,7 @@ class Run:
         project: str,
         name: str | None,
         config: dict[str, Any],
+        description: str | None = None,
         total_steps: int | None = None,
         run_id: str | None = None,
         resume: bool | str = False,
@@ -241,6 +243,7 @@ class Run:
         self.project = project
         self.name = name or _generate_name()
         self.config = dict(config)
+        self.description = description or ""
         self._backend = backend
         self._buffer: list[tuple[str, int, float, float]] = []
         self._buf_lock = threading.Lock()
@@ -265,7 +268,7 @@ class Run:
             )
         if mode == "must" and not existed:
             raise ValueError(f"resume='must' but run {self.id!r} was not found")
-        backend.create_run(self.id, project, self.name, self.config)
+        backend.create_run(self.id, project, self.name, self.config, description=self.description)
         if existed and mode:
             self._step = int(backend.resume_run(self.id)) + 1
         self._stop = threading.Event()
@@ -331,20 +334,23 @@ class Run:
         unit: str | None = None,
         goal: str | None = None,
         baseline: float | None = None,
+        description: str | None = None,
     ) -> None:
         """Declare how the dashboard should render a metric — call once, before the
         loop. Pins the y-axis to a fixed range, formats it (e.g. as a percentage),
-        draws a baseline reference line, and marks which direction is "better" so the
-        leading run stands out.
+        draws a baseline reference line, marks which direction is "better", and shows
+        a one-line `description` so a reader who doesn't know the metric gets it.
 
-            run.define_metric("eval/win_rate", unit="percent", goal="max", baseline=0.5)
+            run.define_metric("eval/win_rate", unit="percent", goal="max", baseline=0.5,
+                              description="对局胜率，越高越好（0.5 为随机基线）")
             run.define_metric("acc", min=0, max=1)          # a bounded [0,1] score
 
         `unit="percent"` defaults the range to 0..1 and shows 0.73 as 73%. `goal` is
         "max" or "min". `baseline` draws a dashed reference line (e.g. chance level).
-        The spec applies immediately — locally, and in cloud mode it is pushed live to
-        the server (like progress). The backend write is best-effort, never interrupts
-        training."""
+        `description` is a short human note shown under the chart — write it in the
+        reader's own language. The spec applies immediately — locally, and in cloud
+        mode it is pushed live to the server (like progress). The backend write is
+        best-effort, never interrupts training."""
         spec: dict[str, Any] = {}
         if unit == "percent" and min is None and max is None:
             min, max = 0.0, 1.0
@@ -360,6 +366,8 @@ class Run:
             spec["goal"] = goal
         if baseline is not None:
             spec["baseline"] = float(baseline)
+        if description is not None:
+            spec["description"] = str(description)
         if not spec:
             return
         try:

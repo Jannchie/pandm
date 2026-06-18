@@ -8,6 +8,7 @@ export interface Run {
   id: string
   project: string
   name: string
+  description: string // one-line human note (init(description=...))
   status: 'running' | 'finished' | 'crashed'
   config: Record<string, unknown>
   created_at: number
@@ -35,6 +36,7 @@ export interface MetricSpec {
   unit?: string // 'percent' -> show 0.73 as 73%, default range 0..1
   goal?: 'max' | 'min' // which direction is "better" (marks the leading run)
   baseline?: number // draws a dashed reference line (e.g. chance level)
+  description?: string // one-line human note shown under the chart
 }
 
 export interface Series {

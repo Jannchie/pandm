@@ -115,6 +115,9 @@ function confirmDelete(run: Run) {
           <div class="text-[13px] truncate leading-tight" :class="state.selected.includes(run.id) ? 'text-fg' : 'text-fg-mut'">
             {{ run.name }}
           </div>
+          <div v-if="run.description" class="text-[11px] text-fg-mut/80 truncate leading-tight">
+            {{ run.description }}
+          </div>
           <div class="text-[11px] text-fg-dim truncate leading-tight">
             <template v-if="run.status === 'running' && eta && eta.fraction != null">
               {{ Math.round(eta.fraction * 100) }}%<template v-if="eta.finishAt"> · ~{{ fmtDuration(eta.finishAt - now) }} left</template>

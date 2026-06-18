@@ -136,12 +136,13 @@ def test_dual_write_carries_metric_meta(local_dir, server):
     uploader and persisted through finish (the offline backstop)."""
     client, transport = server
     backend = DualBackend(local_dir, SERVER_URL, None, transport=transport)
-    run = Run(backend, project="proj", name="dm", config={})
+    run = Run(backend, project="proj", name="dm", config={}, description="ppo baseline")
     run.define_metric("win_rate", unit="percent", goal="max", baseline=0.5)
     run.log({"win_rate": 0.7})
     run.finish()
 
     remote = client.get(f"/api/runs/{run.id}").json()
+    assert remote["description"] == "ppo baseline"  # run subtitle, carried at create
     assert remote["metric_meta"]["win_rate"] == {
         "min": 0.0,
         "max": 1.0,

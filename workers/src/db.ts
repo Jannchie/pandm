@@ -14,6 +14,7 @@ export interface RunRow {
   id: string
   project: string
   name: string
+  description: string // one-line human note (init(description=...))
   status: string
   config: string
   created_at: number
@@ -58,6 +59,7 @@ export function runToDict(
     id: row.id,
     project: row.project,
     name: row.name,
+    description: row.description ?? '',
     status,
     config: JSON.parse(row.config),
     created_at: row.created_at,
@@ -122,14 +124,15 @@ export async function createRun(
   config: unknown,
   createdAt: number | null,
   userId: number,
+  description = '',
 ): Promise<void> {
   const ts = createdAt ?? now()
   await db
     .prepare(
-      `INSERT OR IGNORE INTO runs (id, project, name, status, config, created_at, updated_at, user_id, summary)
-       VALUES (?1, ?2, ?3, 'running', ?4, ?5, ?6, ?7, '{}')`,
+      `INSERT OR IGNORE INTO runs (id, project, name, description, status, config, created_at, updated_at, user_id, summary)
+       VALUES (?1, ?2, ?3, ?4, 'running', ?5, ?6, ?7, ?8, '{}')`,
     )
-    .bind(runId, project, name, JSON.stringify(config ?? {}), ts, ts, userId)
+    .bind(runId, project, name, description, JSON.stringify(config ?? {}), ts, ts, userId)
     .run()
 }
 

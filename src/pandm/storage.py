@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS runs (
     id             TEXT PRIMARY KEY,
     project        TEXT NOT NULL DEFAULT 'default',
     name           TEXT NOT NULL,
+    -- one-line human note on what this run is (run.init(description=...))
+    description    TEXT NOT NULL DEFAULT '',
     status         TEXT NOT NULL DEFAULT 'running',
     config         TEXT NOT NULL DEFAULT '{}',
     -- author-written run-level scalars (run.summary({...})): the self-consistent
@@ -119,6 +121,7 @@ def _run_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "id": row["id"],
         "project": row["project"],
         "name": row["name"],
+        "description": row["description"],
         "status": row["status"],
         "config": json.loads(row["config"]),
         "summary": json.loads(row["summary"]),
@@ -163,6 +166,8 @@ class LocalStore:
             self._db.execute("ALTER TABLE runs ADD COLUMN summary TEXT NOT NULL DEFAULT '{}'")
         if "metric_meta" not in cols:
             self._db.execute("ALTER TABLE runs ADD COLUMN metric_meta TEXT NOT NULL DEFAULT '{}'")
+        if "description" not in cols:
+            self._db.execute("ALTER TABLE runs ADD COLUMN description TEXT NOT NULL DEFAULT ''")
         self._db.execute("CREATE INDEX IF NOT EXISTS idx_runs_user ON runs (user_id)")
 
     def close(self) -> None:
@@ -179,13 +184,14 @@ class LocalStore:
         config: dict[str, Any],
         created_at: float | None = None,
         user_id: int | None = None,
+        description: str | None = None,
     ) -> None:
         now = created_at if created_at is not None else time.time()
         with self._lock:
             self._db.execute(
-                "INSERT OR IGNORE INTO runs (id, project, name, status, config, created_at, updated_at, user_id)"
-                " VALUES (?, ?, ?, 'running', ?, ?, ?, ?)",
-                (run_id, project, name, json.dumps(config, default=str), now, now, user_id),
+                "INSERT OR IGNORE INTO runs (id, project, name, description, status, config, created_at, updated_at, user_id)"
+                " VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?)",
+                (run_id, project, name, description or "", json.dumps(config, default=str), now, now, user_id),
             )
             self._db.commit()
 
