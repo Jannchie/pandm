@@ -8,10 +8,12 @@ started during an outage still shows up once the server is back.
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
 import sys
 import time
-from typing import Any
+from typing import Any, Iterator
 
 import httpx
 
@@ -22,40 +24,87 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 _RETRIES = 3
 _COOLDOWN = 30.0  # seconds to back off after the server is deemed unreachable
+_DEFAULT_TIMEOUT = 10.0  # per-request HTTP timeout; override with PANDM_SYNC_TIMEOUT
+
+
+def _env_float(name: str, default: float) -> float:
+    """Read a positive float from the environment, ignoring blank/garbage values."""
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        val = float(raw)
+    except ValueError:
+        return default
+    return val if val > 0 else default
 
 
 class RemoteBackend:
-    def __init__(self, base_url: str, api_key: str | None = None, transport: Any = None):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str | None = None,
+        transport: Any = None,
+        timeout: float | None = None,
+    ):
         headers = {"x-api-key": api_key} if api_key else {}
+        self._timeout = timeout if timeout is not None else _env_float("PANDM_SYNC_TIMEOUT", _DEFAULT_TIMEOUT)
         self._client = httpx.Client(
-            base_url=base_url.rstrip("/"), timeout=10, headers=headers, transport=transport
+            base_url=base_url.rstrip("/"), timeout=self._timeout, headers=headers, transport=transport
         )
         self._down_until = 0.0
+        self._deadline: float | None = None  # set by deadline(): a wall-clock cap on a burst of calls
         self._warned = False
         self._created = False
         self._create_payload: dict[str, Any] | None = None
         self._summary: dict[str, Any] = {}  # author scalars, sent with finish (§ no separate endpoint)
+
+    @contextlib.contextmanager
+    def deadline(self, budget: float) -> Iterator[None]:
+        """Bound every request issued inside the block to `budget` seconds of wall
+        clock. Past the budget, requests short-circuit to failure instead of
+        blocking — so finish()/resume() on the training thread can never wedge it.
+        Whatever doesn't make it in time is left for the local store / `pandm sync`."""
+        prev = self._deadline
+        self._deadline = time.monotonic() + budget
+        try:
+            yield
+        finally:
+            self._deadline = prev
+
+    def _budget_left(self) -> float | None:
+        return None if self._deadline is None else self._deadline - time.monotonic()
 
     def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response | None:
         if time.monotonic() < self._down_until:
             return None
         last_exc: Exception | None = None
         for attempt in range(_RETRIES):
+            left = self._budget_left()
+            if left is not None:
+                if left <= 0:
+                    break  # budget spent — fail fast rather than block the caller
+                kwargs["timeout"] = min(self._timeout, left)  # shrink the read timeout to fit
             try:
                 resp = self._client.request(method, url, **kwargs)
                 resp.raise_for_status()
                 return resp
             except Exception as exc:  # noqa: BLE001 — network errors of all stripes
                 last_exc = exc
-                time.sleep(0.3 * (attempt + 1))
-        self._down_until = time.monotonic() + _COOLDOWN
-        if not self._warned:
-            self._warned = True
-            print(
-                f"pandm: cannot reach remote server ({last_exc}); "
-                f"retrying every {int(_COOLDOWN)}s, data logged while offline is dropped",
-                file=sys.stderr,
-            )
+                left = self._budget_left()
+                if left is not None and left <= 0:
+                    break
+                backoff = 0.3 * (attempt + 1)
+                time.sleep(backoff if left is None else min(backoff, left))
+        if last_exc is not None:  # a tripped deadline that never reached the wire isn't an outage
+            self._down_until = time.monotonic() + _COOLDOWN
+            if not self._warned:
+                self._warned = True
+                print(
+                    f"pandm: cannot reach remote server ({last_exc}); "
+                    f"retrying every {int(_COOLDOWN)}s, data logged while offline is dropped",
+                    file=sys.stderr,
+                )
         return None
 
     def _ensure_created(self) -> bool:
@@ -85,8 +134,12 @@ class RemoteBackend:
         404 ('no such run') isn't mistaken for an outage and doesn't trip retries."""
         if time.monotonic() < self._down_until:
             return False
+        left = self._budget_left()
+        if left is not None and left <= 0:
+            return False
+        timeout = self._timeout if left is None else min(self._timeout, left)
         try:
-            return self._client.get(f"/api/runs/{run_id}").status_code == 200
+            return self._client.get(f"/api/runs/{run_id}", timeout=timeout).status_code == 200
         except Exception:  # noqa: BLE001 — unreachable -> treat as absent, caller starts fresh
             return False
 

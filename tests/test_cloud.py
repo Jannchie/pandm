@@ -183,6 +183,41 @@ def test_finish_only_after_tail_synced(local_dir, server):
     assert client.get(f"/api/runs/{run.id}/metrics/loss").json()["values"] == [1.0, 0.5]
 
 
+def test_deadline_short_circuits_sync(local_dir, server):
+    """A deadline-bounded burst stops pushing the moment its budget is spent and
+    recovers cleanly afterwards — this is what stops finish()/resume() from wedging
+    the training process when the server is slow."""
+    client, transport = server
+    local = LocalStore(local_dir)
+    local.create_run("rdl00001", "p", "n", {})
+    local.log_metrics("rdl00001", [("loss", i, float(i), 1.0) for i in range(5)])
+    local.ensure_sync_state("rdl00001")
+
+    remote = RemoteBackend(SERVER_URL, transport=transport)
+    remote.create_run("rdl00001", "p", "n", {})
+
+    with remote.deadline(0.0):  # budget already spent before any request
+        assert remote.run_exists("rdl00001") is False  # read short-circuits, never blocks
+        assert pump_run(local, remote, "rdl00001") is False  # nothing pushed
+    assert client.get("/api/runs/rdl00001/metrics/loss").json()["values"] == []  # tail untouched
+    assert local.runs_needing_sync() == ["rdl00001"]  # cursor never advanced
+
+    # the cap is scoped to the block, not sticky: the backend works normally after
+    assert remote.run_exists("rdl00001") is True
+    assert pump_run(local, remote, "rdl00001") is True
+    assert len(client.get("/api/runs/rdl00001/metrics/loss").json()["steps"]) == 5
+    assert local.runs_needing_sync() == []
+
+
+def test_sync_timeout_from_env(monkeypatch):
+    monkeypatch.setenv("PANDM_SYNC_TIMEOUT", "2.5")
+    assert RemoteBackend(SERVER_URL)._timeout == 2.5  # noqa: SLF001
+    monkeypatch.setenv("PANDM_SYNC_TIMEOUT", "garbage")
+    assert RemoteBackend(SERVER_URL)._timeout == 10.0  # noqa: SLF001 — junk falls back to the default
+    monkeypatch.delenv("PANDM_SYNC_TIMEOUT")
+    assert RemoteBackend(SERVER_URL, timeout=1.0)._timeout == 1.0  # noqa: SLF001 — explicit wins
+
+
 def test_sync_lease(local_dir):
     store = LocalStore(local_dir)
     store.create_run("r1", "p", "n", {})

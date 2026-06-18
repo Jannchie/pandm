@@ -15,14 +15,14 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from .client import RemoteBackend
+from .client import _DEFAULT_TIMEOUT, _env_float, RemoteBackend
 from .storage import LocalStore
 
 _BATCH = 500
 _PUMP_INTERVAL = 2.0
 _LEASE_TTL = 60.0
 _REMOTE_HEARTBEAT_EVERY = 30.0  # only beat remotely when the pump has been idle this long
-_FINISH_DRAIN_BUDGET = 4.0  # seconds to flush the tail before giving up to `pandm sync`
+_FINISH_DRAIN_BUDGET = 4.0  # default seconds to flush the tail before giving up to `pandm sync`
 
 
 def _lease_owner() -> str:
@@ -126,21 +126,29 @@ class Uploader:
                 pass
 
     def finish(self, status: str, finished_at: float) -> None:
-        """Drain the tail, then push the final status — never the other way round."""
+        """Drain the tail, then push the final status — never the other way round.
+
+        Hard-bounded by PANDM_FINISH_TIMEOUT: a slow or wedged server can never hold
+        up process exit. The budget caps both how long we wait for the background
+        thread to wind down and the synchronous drain that follows; whatever doesn't
+        make it stays local for `pandm sync` to reconcile.
+        """
+        budget = _env_float("PANDM_FINISH_TIMEOUT", _FINISH_DRAIN_BUDGET)
         self._stop.set()
         self._wake.set()
-        self._thread.join(timeout=_FINISH_DRAIN_BUDGET)
+        self._thread.join(timeout=budget)
         run = self.store.get_run(self.run_id)
         summary = run["summary"] if run else {}  # author scalars ride along with finish
         try:
-            if not self._thread.is_alive():  # wedged in retries → leave the tail to `pandm sync`
-                deadline = time.monotonic() + _FINISH_DRAIN_BUDGET
-                while time.monotonic() < deadline:
-                    if self._pump():
-                        if self.remote.finish_run(self.run_id, status, finished_at, summary):
-                            self.store.advance_sync_cursor(self.run_id, status_synced=True)
-                        break
-                    time.sleep(0.2)  # offline backoff; don't spin the deadline away
+            if not self._thread.is_alive():  # still wedged → leave the tail to `pandm sync`
+                deadline = time.monotonic() + budget
+                with self.remote.deadline(budget):  # bound the requests, not just the loop
+                    while time.monotonic() < deadline:
+                        if self._pump():
+                            if self.remote.finish_run(self.run_id, status, finished_at, summary):
+                                self.store.advance_sync_cursor(self.run_id, status_synced=True)
+                            break
+                        time.sleep(0.2)  # offline backoff; don't spin the deadline away
         except Exception:  # noqa: BLE001
             pass  # tail stays local; `pandm sync` reconciles later
         finally:
@@ -173,12 +181,14 @@ class DualBackend:
         step = self.local.resume_run(run_id)
         # flip the cloud copy back to running too, but only if it was ever synced —
         # run_exists is a plain GET, so a never-synced run doesn't trip retry warnings.
+        # Bounded best-effort: a slow server must not delay the resumed run's start.
         remote = RemoteBackend(self._server, self._api_key, transport=self._transport)
-        if remote.run_exists(run_id):
-            try:
-                remote.resume_run(run_id)
-            except Exception:  # noqa: BLE001 — remote catches up on finish; local is the truth
-                pass
+        with remote.deadline(_env_float("PANDM_SYNC_TIMEOUT", _DEFAULT_TIMEOUT)):
+            if remote.run_exists(run_id):
+                try:
+                    remote.resume_run(run_id)
+                except Exception:  # noqa: BLE001 — remote catches up on finish; local is the truth
+                    pass
         return step
 
     def log_metrics(self, run_id: str, rows: list[tuple[str, int, float, float]]) -> None:

@@ -85,7 +85,7 @@ For images, unwrap the raw run: `accelerator.get_tracker("pandm", unwrap=True).l
 
 ### Cloud mode
 
-Training scripts never change — sign in once per machine and `pandm.init()` dual-writes: local stays the source of truth, a background thread syncs to the server, and anything logged offline is backfilled on reconnect. Delivery is exact-once (re-pushes are deduped server-side).
+Training scripts never change — sign in once per machine and `pandm.init()` dual-writes: local stays the source of truth, a background thread syncs to the server, and anything logged offline is backfilled on reconnect. Delivery is exact-once (re-pushes are deduped server-side). Sync never stalls training: every network step is time-bounded (`PANDM_SYNC_TIMEOUT`, default 10s) and `finish()` flushes the tail under a hard budget (`PANDM_FINISH_TIMEOUT`, default 4s) before leaving the rest to `pandm sync`.
 
 ```sh
 pandm login        # hosted cloud (pandm.jannchie.com); pass a URL for self-hosted
