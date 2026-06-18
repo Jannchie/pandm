@@ -16,16 +16,47 @@ background thread syncs to the server, backfilling whatever was logged offline.
 from __future__ import annotations
 
 import atexit
+import dataclasses
 import io
 import math
 import os
 import sys
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from .storage import LocalStore, new_run_id, resolve_dir
+
+
+def _coerce_config(config: Any) -> dict[str, Any]:
+    """Normalize whatever the user passes as `config` to a plain dict.
+
+    Accepts a dict / Mapping, a dataclass instance, an ``argparse.Namespace``, a
+    pydantic model, or any object exposing public attributes — so you can hand it
+    your experiment config object directly. Nested non-JSON values are stringified
+    later by the store.
+    """
+    if config is None:
+        return {}
+    if isinstance(config, Mapping):
+        return dict(config)
+    if dataclasses.is_dataclass(config) and not isinstance(config, type):
+        return dataclasses.asdict(config)
+    model_dump = getattr(config, "model_dump", None)  # pydantic v2 — keeps nested models as dicts
+    if callable(model_dump):
+        try:
+            dumped = model_dump()
+            if isinstance(dumped, dict):
+                return dumped
+        except Exception:  # noqa: BLE001 — fall through to the attribute scrape
+            pass
+    if hasattr(config, "__dict__"):  # argparse.Namespace, pydantic v1, plain config objects
+        return {k: v for k, v in vars(config).items() if not k.startswith("_")}
+    raise TypeError(
+        f"config must be a dict, Mapping, dataclass, Namespace, or attribute object — got {type(config).__name__}"
+    )
 
 _FLUSH_INTERVAL = 0.5
 _FLUSH_THRESHOLD = 256
@@ -141,7 +172,7 @@ def _maybe_offer_login(resolved: Any, remote: str | bool | None, api_key: str | 
 def init(
     project: str = "default",
     name: str | None = None,
-    config: dict[str, Any] | None = None,
+    config: Any = None,
     *,
     description: str | None = None,
     id: str | None = None,
@@ -152,6 +183,9 @@ def init(
     api_key: str | None = None,
 ) -> "Run":
     """Start a new run. Returns a :class:`Run`; also usable as a context manager.
+
+    `config=` accepts a dict, a dataclass, an `argparse.Namespace`, a pydantic
+    model, or any object with attributes — it's normalized to a dict for storage.
 
     `total_steps=` declares the training length so the dashboard can estimate an
     ETA: progress then tracks the latest `log(step=...)` automatically. For other
@@ -182,7 +216,7 @@ def init(
     else:
         backend = LocalStore(resolve_dir(directory))
     run = Run(
-        backend, project=project, name=name, config=config or {},
+        backend, project=project, name=name, config=config,
         description=description, total_steps=total_steps, run_id=id, resume=resume,
     )
     _active_runs.append(run)
@@ -233,7 +267,7 @@ class Run:
         backend: Any,
         project: str,
         name: str | None,
-        config: dict[str, Any],
+        config: Any = None,
         description: str | None = None,
         total_steps: int | None = None,
         run_id: str | None = None,
@@ -242,7 +276,7 @@ class Run:
         self.id = run_id or new_run_id()
         self.project = project
         self.name = name or _generate_name()
-        self.config = dict(config)
+        self.config = _coerce_config(config)
         self.description = description or ""
         self._backend = backend
         self._buffer: list[tuple[str, int, float, float]] = []

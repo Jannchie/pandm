@@ -398,6 +398,43 @@ def test_finish_ingests_metric_meta(data_dir):
     assert client.get("/api/runs/m1").json()["metric_meta"] == spec
 
 
+def test_config_accepts_non_dict_types(data_dir):
+    """config can be a dataclass / Namespace / pydantic model / plain object, not
+    just a dict — each is normalized to a dict (private attrs dropped)."""
+    import argparse
+    from dataclasses import dataclass
+
+    @dataclass
+    class Cfg:
+        lr: float = 1e-3
+        bs: int = 64
+
+    class Obj:
+        def __init__(self) -> None:
+            self.lr = 0.5
+            self._secret = "x"  # leading-underscore attrs are not config
+
+    cases = [
+        (Cfg(), {"lr": 1e-3, "bs": 64}),
+        (argparse.Namespace(lr=1e-3, bs=64), {"lr": 1e-3, "bs": 64}),
+        (Obj(), {"lr": 0.5}),
+    ]
+    try:
+        from pydantic import BaseModel
+
+        class M(BaseModel):
+            lr: float = 1e-3
+
+        cases.append((M(), {"lr": 1e-3}))
+    except ImportError:
+        pass
+
+    for cfg, expected in cases:
+        run = pandm.init(project="p", config=cfg, directory=data_dir, remote=False)
+        run.finish()
+        assert _get_run(LocalStore(data_dir), run.id)["config"] == expected
+
+
 def test_meta_endpoint_merges_live(data_dir):
     client = TestClient(create_app(data_dir, api_key="k"))
     headers = {"x-api-key": "k"}
