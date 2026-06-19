@@ -250,9 +250,11 @@ def log_image(key: str, image: Any, step: int | None = None, caption: str | None
     _current().log_image(key, image, step=step, caption=caption)
 
 
-def log_histogram(key: str, samples: Any, step: int | None = None, bins: int = 30) -> None:
+def log_histogram(
+    key: str, samples: Any, step: int | None = None, bins: int = 30, description: str | None = None,
+) -> None:
     """Log a distribution snapshot to the most recently started run (mirrors run.log_histogram)."""
-    _current().log_histogram(key, samples, step=step, bins=bins)
+    _current().log_histogram(key, samples, step=step, bins=bins, description=description)
 
 
 def set_progress(current: float, total: float | None = None) -> None:
@@ -464,7 +466,9 @@ class Run:
         except Exception:  # noqa: BLE001 — display metadata is best-effort, never kill training
             pass
 
-    def log_histogram(self, key: str, samples: Any, *, step: int | None = None, bins: int = 30) -> None:
+    def log_histogram(
+        self, key: str, samples: Any, *, step: int | None = None, bins: int = 30, description: str | None = None,
+    ) -> None:
         """Log a distribution snapshot — the shape of `samples`, not just its mean.
 
             run.log_histogram("dist/reward", episode_rewards, step=step)   # raw samples
@@ -475,9 +479,15 @@ class Run:
         independent of how many samples produced them. Pass a precomputed
         ``(counts, edges)`` tuple to skip binning. The dashboard draws the series of
         snapshots as a step×bin density heatmap (is the distribution bimodal? long-
-        tailed? collapsing?). Needs numpy. No-op on an empty sample set."""
+        tailed? collapsing?). Needs numpy. No-op on an empty sample set.
+
+        `description` is a one-line human note shown under the chart — like
+        `define_metric(description=...)`, it shares the same metric_meta, so passing
+        it once (on any step) is enough. Write it in the reader's own language."""
         if self._finished:
             raise RuntimeError(f"run {self.id} is already finished")
+        if description is not None:
+            self.define_metric(key, description=description)
         if step is None:
             step = max(0, self._step - 1)  # align with the latest metric step
         edges, counts = _histogram(samples, bins)

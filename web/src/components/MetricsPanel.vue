@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { Run } from '../api'
 import type { ChartDesc, ChartSeriesDesc } from '../store'
 import { computed, watchEffect } from 'vue'
 import { runColor } from '../colors'
@@ -96,6 +95,23 @@ const charts = computed<ChartDesc[]>(() => {
       colorBy: multiRun ? 'run' : 'series',
     })
   }
+
+  // 4. histograms (run.log_histogram) join the same chart model so they get the
+  // identical title / description / expand treatment — but a heatmap is single-run,
+  // so each (run, key) is its own descriptor pinned to that run. They sort into the
+  // same prefix sections as their sibling metrics (dist/* lands under "dist").
+  for (const run of selectedRuns.value) {
+    for (const key of histogramKeysByRun[run.id] ?? []) {
+      out.push({
+        id: `hist:${run.id}:${key}`,
+        title: key,
+        kind: 'histogram',
+        series: [{ key, label: key, kind: 'line' }],
+        colorBy: 'run',
+        run,
+      })
+    }
+  }
   return out
 })
 
@@ -135,7 +151,7 @@ const badges = computed(() => {
   const out: Record<string, { value: string, color: string, star: boolean } | null> = {}
   const multi = selectedRuns.value.length > 1
   for (const c of charts.value) {
-    const spec = c.panel ? null : metricSpec(c.series[0].key)
+    const spec = c.panel || c.kind === 'histogram' ? null : metricSpec(c.series[0].key)
     if (!spec || (!spec.goal && multi)) {
       out[c.id] = null // panel, no spec, or ambiguous which run is "best"
       continue
@@ -150,24 +166,16 @@ const badges = computed(() => {
 
 const expanded = computed(() => charts.value.find((c) => c.id === state.expandedChart) ?? null)
 
-// distributions (run.log_histogram): discovered per run with a dedicated request,
-// since they don't ride in run.stats. A heatmap is inherently single-run, so each
-// (run, key) is its own chart — only rendered when a run actually has histograms.
+// histogram keys don't ride in run.stats, so discover them per run with a dedicated
+// request; the result feeds histogramKeysByRun, which the charts computed folds into
+// the unified chart list above.
 watchEffect(() => {
   for (const run of selectedRuns.value) ensureHistogramKeys(run)
-})
-
-const distCharts = computed(() => {
-  const out: { id: string, run: Run, key: string }[] = []
-  for (const run of selectedRuns.value) {
-    for (const key of histogramKeysByRun[run.id] ?? []) out.push({ id: `${run.id}:${key}`, run, key })
-  }
-  return out
 })
 </script>
 
 <template>
-  <div v-if="charts.length || distCharts.length" class="p-4 flex flex-col gap-5">
+  <div v-if="charts.length" class="p-4 flex flex-col gap-5">
     <section v-for="grp in sections" :key="grp.name || '_'" class="flex flex-col gap-2">
       <h3
         v-if="grp.name"
@@ -179,6 +187,11 @@ const distCharts = computed(() => {
         <div v-for="c in grp.items" :key="c.id" class="card group p-3 pb-1 min-w-0">
           <div class="flex items-center mb-1">
             <span class="text-[14px] text-fg font-medium truncate font-mono">{{ c.title }}</span>
+            <span
+              v-if="c.kind === 'histogram' && selectedRuns.length > 1"
+              class="text-[12px] font-mono truncate shrink-0 ml-2"
+              :style="{ color: runColor(c.run!.id) }"
+            >{{ c.run!.name }}</span>
             <div class="flex-1" />
             <span
               v-if="badges[c.id]"
@@ -209,29 +222,8 @@ const distCharts = computed(() => {
           </p>
           <!-- aspect-ratio (not fixed height) so charts scale with the column width -->
           <div class="aspect-video">
-            <MetricChart :desc="c" />
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- distributions (run.log_histogram): a step×bin density heatmap per (run, key) -->
-    <section v-if="distCharts.length" class="flex flex-col gap-2">
-      <h3 class="text-[12.5px] text-fg-dim font-semibold uppercase tracking-wide px-0.5">
-        distributions
-      </h3>
-      <div class="grid gap-3 mobile-1col" :style="gridStyle">
-        <div v-for="d in distCharts" :key="d.id" class="card p-3 pb-1 min-w-0">
-          <div class="flex items-center mb-1 gap-2">
-            <span class="text-[14px] text-fg font-medium truncate font-mono">{{ d.key }}</span>
-            <span
-              v-if="selectedRuns.length > 1"
-              class="text-[12px] font-mono truncate shrink-0"
-              :style="{ color: runColor(d.run.id) }"
-            >{{ d.run.name }}</span>
-          </div>
-          <div class="aspect-video">
-            <HistogramChart :run="d.run" :metric-key="d.key" />
+            <HistogramChart v-if="c.kind === 'histogram'" :run="c.run!" :metric-key="c.series[0].key" />
+            <MetricChart v-else :desc="c" />
           </div>
         </div>
       </div>
@@ -254,6 +246,11 @@ const distCharts = computed(() => {
           <div class="flex items-center mb-2">
             <div class="min-w-0">
               <span class="text-[14.5px] text-fg font-medium font-mono">{{ expanded.title }}</span>
+              <span
+                v-if="expanded.kind === 'histogram' && selectedRuns.length > 1"
+                class="text-[12.5px] font-mono ml-2"
+                :style="{ color: runColor(expanded.run!.id) }"
+              >{{ expanded.run!.name }}</span>
               <p v-if="descs[expanded.id]" class="text-[12.5px] text-fg-dim leading-snug truncate">
                 {{ descs[expanded.id] }}
               </p>
@@ -266,7 +263,8 @@ const distCharts = computed(() => {
             </button>
           </div>
           <div class="h-[64vh]">
-            <MetricChart :desc="expanded" />
+            <HistogramChart v-if="expanded.kind === 'histogram'" :run="expanded.run!" :metric-key="expanded.series[0].key" />
+            <MetricChart v-else :desc="expanded" />
           </div>
         </div>
       </div>

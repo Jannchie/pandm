@@ -97,7 +97,7 @@ def simulate_rl(project: str, name: str, steps: int = 300, seed: int = 0) -> Non
                      "eval/win_rate_hi": min(1, mean + 1.96 * sem)}, step=step)
             # proposal D: the episode-reward distribution this eval (is it bimodal?)
             run.log_histogram("dist/episode_reward", rng.normal(terminal, 0.5 + 0.5 * (1 - p), size=400),
-                              step=step, bins=24)
+                              step=step, bins=24, description="每个 eval 批次的 episode 回报分布")
 
     run.summary({f"final/seat{s}": 0.4 + 0.15 * s for s in range(4)})  # final per-seat win rates
     run.finish()

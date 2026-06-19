@@ -52,13 +52,16 @@ export interface ChartSeriesDesc {
 }
 
 export interface ChartDesc {
-  id: string // stable across polls: `key:loss` or `panel:reward`
+  id: string // stable across polls: `key:loss`, `panel:reward`, or `hist:<run>:<key>`
   title: string // the key, or the panel name
   panel?: string // set when this chart groups a panel of keys
-  kind: 'line' | 'bar' | 'scatter'
+  kind: 'line' | 'bar' | 'scatter' | 'histogram'
   series: ChartSeriesDesc[]
   // option A: a single-run panel colours by series; everything else colours by run
   colorBy: 'run' | 'series'
+  // histograms are per-(run, key): a heatmap is inherently single-run, so the
+  // descriptor pins the run it draws. Unset for line/bar/scatter charts.
+  run?: api.Run
 }
 
 // a metric's display spec (run.define_metric): the first selected run that declares

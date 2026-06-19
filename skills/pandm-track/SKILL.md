@@ -46,7 +46,7 @@ with pandm.init(project="mnist", config={"lr": 1e-3}) as run:
 | `pandm.init(project="default", name=None, config=None, *, description=None, total_steps=None, directory=None, remote=None, api_key=None)` | Start a run; returns a `Run` (also a context manager). `description` = a one-line subtitle. |
 | `run.log(metrics: dict, step=None)` | Log scalar metrics. `step` defaults to an internal per-run counter. |
 | `run.log_image(key, image, step=None, caption=None)` | Log one image. `step` defaults to the latest metric step. |
-| `run.log_histogram(key, samples, *, step=None, bins=30)` | Log a distribution snapshot — drawn over time as a density heatmap. Needs numpy. See *Richer charts*. |
+| `run.log_histogram(key, samples, *, step=None, bins=30, description=None)` | Log a distribution snapshot — drawn over time as a density heatmap. `description` adds a one-line subtitle under the chart (shares `metric_meta` with `define_metric`; pass once). Needs numpy. See *Richer charts*. |
 | `run.set_progress(current, total=None)` | Report progress in a custom unit (epochs, samples) for the ETA. |
 | `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None, description=None, panel=None, series=None, band=None, kind="line")` | Declare how the dashboard renders a metric — fixed axis, percent, baseline, goal, subtitle, **and** multi-line panels / CI bands / bar charts. See *Richer charts*. |
 | `run.finish(status="finished")` | End the run. Also runs automatically at process exit. |
@@ -127,10 +127,12 @@ for s in range(4):
 evolves, not just its mean: episode-reward spread (bimodal? long-tailed?), action
 distribution (policy collapse?), advantage spread. pandm bins the samples client-side
 (numpy) and stores only the `O(bins)` edges + counts, so the payload is tiny regardless
-of sample count. Drawn as a step×bin density heatmap under a *distributions* section:
+of sample count. Drawn as a step×bin density heatmap, sorted into the same prefix
+section as its sibling metrics (`dist/*` lands under *dist*):
 
 ```python
-run.log_histogram("dist/episode_reward", episode_rewards, step=step, bins=30)
+run.log_histogram("dist/episode_reward", episode_rewards, step=step, bins=30,
+                  description="每个 eval 的 episode 回报分布")  # one-line subtitle, optional
 # already have a histogram? pass it precomputed: log_histogram(key, (counts, edges), step=step)
 ```
 
