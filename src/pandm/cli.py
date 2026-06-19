@@ -23,11 +23,44 @@ app = typer.Typer(
 console = Console()
 
 DirOption = typer.Option(None, "--dir", "-d", help="Data directory (default: ./.pandm or $PANDM_DIR).")
+JsonOption = typer.Option(False, "--json", help="Emit machine-readable JSON instead of a table.")
 
 
 def _banner(url: str, data_dir: Path, mode: str) -> None:
     console.print(f"\n[bold]pandm[/bold] [dim]v{__version__}[/dim] · {mode}")
     console.print(f"[bold cyan]{url}[/bold cyan] [dim]· data: {data_dir}[/dim]\n")
+
+
+def _emit_json(obj: object) -> None:
+    """Print parseable JSON to stdout (no Rich markup, default=str for any leftovers)."""
+    import json
+    import sys
+
+    json.dump(obj, sys.stdout, indent=2, default=str)
+    sys.stdout.write("\n")
+
+
+def _sort_runs(runs: list[dict], sort_by: str | None, ascending: bool) -> list[dict]:
+    """Order runs by a metric aggregate, e.g. `--sort-by val/acc` (max) or `loss:min`.
+
+    The aggregate is read from each run's precomputed `stats[key]` ({min,max,last,count}),
+    so no series scan is needed. Runs missing the key sort to the end either way.
+    """
+    if not sort_by:
+        return runs
+    key, _, agg = sort_by.partition(":")
+    agg = agg or "max"
+    if agg not in ("min", "max", "last"):
+        console.print(f"[red]bad --sort-by aggregate {agg!r} — use min, max or last[/red]")
+        raise typer.Exit(2)
+
+    def metric_value(run: dict):
+        return run.get("stats", {}).get(key, {}).get(agg)
+
+    present = [r for r in runs if metric_value(r) is not None]
+    missing = [r for r in runs if metric_value(r) is None]
+    present.sort(key=metric_value, reverse=not ascending)
+    return present + missing
 
 
 @app.command()
@@ -75,12 +108,29 @@ def server(
 
 @app.command("ls")
 def list_runs(
-    project: Optional[str] = typer.Option(None, "--project", "-P"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help="Filter to one project."),
+    status: Optional[str] = typer.Option(
+        None, "--status", "-s", help="Filter by status (running, finished, crashed)."
+    ),
+    sort_by: Optional[str] = typer.Option(
+        None, "--sort-by", help="Order by a metric aggregate, e.g. 'val/acc' (max) or 'loss:min'."
+    ),
+    ascending: bool = typer.Option(False, "--asc", help="Sort ascending (smallest first)."),
+    limit: Optional[int] = typer.Option(None, "--limit", "-n", help="Keep only the first N runs."),
+    as_json: bool = JsonOption,
     directory: Optional[Path] = DirOption,
 ) -> None:
-    """List runs in the terminal."""
+    """List runs — filter by project/status, sort by a metric, with --json for tooling."""
     store = LocalStore(resolve_dir(directory))
     runs = store.list_runs(project)
+    if status:
+        runs = [r for r in runs if r["status"] == status]
+    runs = _sort_runs(runs, sort_by, ascending)
+    if limit is not None:
+        runs = runs[:limit]
+    if as_json:
+        _emit_json(runs)
+        return
     if not runs:
         console.print("[dim]no runs yet — call pandm.init() in your training script[/dim]")
         return
@@ -111,9 +161,10 @@ def list_runs(
 @app.command()
 def show(
     run_id: str,
+    as_json: bool = JsonOption,
     directory: Optional[Path] = DirOption,
 ) -> None:
-    """Show a run's config, summary and logged metrics."""
+    """Show a run's config, summary and logged metrics (--json adds metric keys + media paths)."""
     import datetime as dt
 
     store = LocalStore(resolve_dir(directory))
@@ -121,6 +172,15 @@ def show(
     if run is None:
         console.print(f"[red]run {run_id} not found[/red]")
         raise typer.Exit(1)
+    if as_json:
+        run["metric_keys"] = store.metric_keys(run_id)  # [{key, points, last_step}]
+        media = store.list_media(run_id)
+        for m in media:
+            path = store.media_path(run_id, m["filename"])
+            m["path"] = str(path) if path else None  # absolute path to open/Read the PNG
+        run["media"] = media
+        _emit_json(run)
+        return
     status_style = {"running": "bold cyan", "finished": "green", "crashed": "red"}
     created = dt.datetime.fromtimestamp(run["created_at"]).strftime("%Y-%m-%d %H:%M:%S")
     console.print(f"\n[bold]{run['name']}[/bold] [dim]({run['id']})[/dim]")
@@ -182,6 +242,61 @@ def export(
     writer.writerow(["key", "step", "value", "ts"])
     for k, s in series.items():
         writer.writerows(zip([k] * len(s["steps"]), s["steps"], s["values"], s["ts"]))
+
+
+@app.command()
+def compare(
+    run_ids: list[str] = typer.Argument(..., help="Two or more run IDs to compare."),
+    as_json: bool = JsonOption,
+    directory: Optional[Path] = DirOption,
+) -> None:
+    """Compare config, summary and per-metric stats across runs, side by side."""
+    store = LocalStore(resolve_dir(directory))
+    runs = []
+    for rid in run_ids:
+        run = store.get_run(rid)
+        if run is None:
+            console.print(f"[red]run {rid} not found[/red]")
+            raise typer.Exit(1)
+        runs.append(run)
+
+    config_keys = sorted({k for r in runs for k in r["config"]})
+    summary_keys = sorted({k for r in runs for k in r["summary"]})
+    stat_keys = sorted({k for r in runs for k in r["stats"]})
+
+    if as_json:
+        _emit_json(
+            {
+                "runs": [
+                    {"id": r["id"], "name": r["name"], "project": r["project"], "status": r["status"]}
+                    for r in runs
+                ],
+                "config": {k: [r["config"].get(k) for r in runs] for k in config_keys},
+                "summary": {k: [r["summary"].get(k) for r in runs] for k in summary_keys},
+                # stats[key][i] = {min, max, last, count} for run i — .last is the latest value
+                "stats": {k: [r["stats"].get(k) for r in runs] for k in stat_keys},
+            }
+        )
+        return
+
+    fmt = lambda v: f"{v:.6g}" if isinstance(v, (int, float)) else ("-" if v is None else str(v))  # noqa: E731
+    table = Table(box=None, header_style="bold dim", pad_edge=False)
+    table.add_column("")
+    for r in runs:
+        table.add_column(f"{r['name']}\n[dim]{r['id']}[/dim]")
+    table.add_row("[dim]status[/dim]", *[r["status"] for r in runs])
+    for label, keys, getter in (
+        ("CONFIG", config_keys, lambda r, k: r["config"].get(k)),
+        ("SUMMARY", summary_keys, lambda r, k: r["summary"].get(k)),
+        ("METRIC (last)", stat_keys, lambda r, k: (r["stats"].get(k) or {}).get("last")),
+    ):
+        if not keys:
+            continue
+        table.add_section()
+        table.add_row(f"[bold dim]{label}[/bold dim]")
+        for k in keys:
+            table.add_row(f"[dim]{k}[/dim]", *[fmt(getter(r, k)) for r in runs])
+    console.print(table)
 
 
 @app.command()

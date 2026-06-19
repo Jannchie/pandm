@@ -14,65 +14,67 @@ pandm stores every run as plain SQLite + PNG under a `.pandm/` directory
   media/<run_id>/   # the actual PNG files
 ```
 
-There are three ways in, cheapest first. Prefer the **JSON helper** when an
-answer needs the data parsed; fall back to the **CLI** for a quick human look,
-and to **raw SQL** for aggregations the helper doesn't cover.
+**Use the pandm CLI — it is the query interface.** Every command below takes
+`--json` for clean, parseable output (no Rich color codes), so there's no need
+to open `pandm.db` with `sqlite3` for ordinary questions. Drop to raw SQL only
+for an aggregation the CLI genuinely can't express.
 
-## 1. Structured JSON — `scripts/pandm_inspect.py` (preferred)
+## Finding the CLI
 
-The built-in CLI prints Rich tables (with color codes) meant for human eyes.
-This helper prints clean JSON from the same store, so values are parseable.
-
-```sh
-python scripts/pandm_inspect.py runs                   # all runs, newest first
-python scripts/pandm_inspect.py runs --project mnist   # filter by project
-python scripts/pandm_inspect.py show <run_id>          # config, summary, metric keys, media
-python scripts/pandm_inspect.py series <run_id>        # every metric's full series
-python scripts/pandm_inspect.py series <run_id> -k train/loss -k val/loss
-python scripts/pandm_inspect.py compare <id1> <id2> …  # config + summary side by side
-python scripts/pandm_inspect.py media <run_id>         # logged images with absolute paths
-```
-
-Add `--dir /path/to/.pandm` to any command to point at a non-default store.
-`runs` / `show` / `compare` carry each run's per-metric `stats` (`.last` is the
-latest value, `.max`/`.min` the best) — that's what you compare to pick a winner
-without reading full series — plus `summary`, the author-written run-level scalars.
-For images, `media` returns absolute file paths you can then open/Read directly.
-
-## 2. CLI — quick human-readable look
+pandm may be on PATH, or only inside a project venv / uv environment. Try these
+in order and use the first that prints a version — then prefix every command
+below with that launcher:
 
 ```sh
-pandm ls                          # table of runs
-pandm show <run_id>               # config, summary, metric keys
-pandm export <run_id> --json      # full series as JSON (one run, metrics only)
-pandm export <run_id> -k train/loss > loss.csv
+pandm version                 # installed on PATH
+python -m pandm version       # importable in the active interpreter
+uv run pandm version          # project managed by uv (run from the repo)
+.venv/bin/pandm version       # project venv (also: ./venv/bin/pandm)
+uvx pandm version             # last resort: fetch into an ephemeral env
 ```
 
-## 3. Raw SQL — custom aggregations
+If none resolve, the data is still just files — fall back to raw SQL (bottom).
+
+## Querying runs
 
 ```sh
-sqlite3 .pandm/pandm.db "SELECT id, name, project, status FROM runs ORDER BY created_at DESC"
+pandm ls --json                                  # all runs, newest first
+pandm ls --project mnist --status finished --json
+pandm ls --sort-by val/acc --limit 5 --json      # 5 best by val/acc (max), best first
+pandm ls --sort-by loss:min --asc --json         # smallest loss first
 ```
 
-Schema essentials:
+`ls --json` carries each run's `config`, author-written `summary`, and per-metric
+`stats` (`{min, max, last, count}` — `.last` is the latest value, `.max`/`.min`
+the best). `--sort-by KEY[:min|max|last]` orders by that aggregate (default
+`max`, descending; add `--asc` to flip), so **"which run wins" is a single CLI
+call** — no series scan, no SQL `MAX()`/`GROUP BY`.
 
-- `runs(id, project, name, status, config /*JSON*/, created_at, updated_at,
-  finished_at, progress, progress_total, progress_ts)`
-- `metrics(run_id, key, step, value, ts)` — one row per logged scalar
-- `media(run_id, key, step, filename, caption, ts)` — file is `media/<run_id>/<filename>`
+## One run, in depth
 
-"Best value of `val/acc`" across runs, straight from SQL:
-
-```sql
-SELECT run_id, MAX(value) AS best FROM metrics
-WHERE key = 'val/acc' GROUP BY run_id ORDER BY best DESC;
+```sh
+pandm show <run_id> --json     # + metric_keys and media with absolute file paths
+pandm export <run_id> --json   # full metric series, all keys
+pandm export <run_id> -k train/loss -k val/loss > loss.csv   # CSV (key,step,value,ts)
 ```
+
+`show --json` returns absolute `path`s for every logged image — open/Read those
+directly. `export` is the only way to get full per-step series.
+
+## Comparing runs
+
+```sh
+pandm compare <id1> <id2> <id3>          # side-by-side table (config, summary, last metric)
+pandm compare <id1> <id2> --json         # config/summary/stats, one value per run, run order preserved
+```
+
+In `compare --json`, each `config[k]` / `summary[k]` / `stats[k]` is a list
+aligned to the `runs` array — `stats[k][i]` is `{min,max,last,count}` for run `i`.
 
 ## Semantics to keep in mind
 
 - **`stats[key]`** = `{min, max, last, count}` per metric — `last` is the *latest*
-  logged value (max step), `max`/`min` the best, carried on every run (and per-run
-  in `compare`) — no need to scan `series`. Note: per-key extrema come from
+  logged value (max step), `max`/`min` the best. Per-key extrema come from
   *different* steps, so `max(spearman)` and `min(mae)` need not be the same model.
 - **`summary[key]`** is an *author-written* run-level scalar (`run.summary({...})`),
   typically the chosen checkpoint's self-consistent metric row — empty unless the
@@ -81,5 +83,19 @@ WHERE key = 'val/acc' GROUP BY run_id ORDER BY best DESC;
   quiet for >60 s is reported as `crashed` (self-heals if the process resumes).
   So a run can flip to `crashed` between two reads — don't cache it.
 - **`progress` / `progress_total`** drive the dashboard ETA; either may be null.
-- The DB is in WAL mode, so reading while a training run is live is safe and
-  returns committed rows.
+
+## Raw SQL — last resort only
+
+For an aggregation the CLI can't express (e.g. a join across the `metrics`
+table). The DB is WAL mode, so reading a live run is safe.
+
+```sql
+-- best val/acc per run, across the whole metrics table
+SELECT run_id, MAX(value) AS best FROM metrics
+WHERE key = 'val/acc' GROUP BY run_id ORDER BY best DESC;
+```
+
+Schema: `runs(id, project, name, status, config /*JSON*/, summary /*JSON*/,
+created_at, updated_at, finished_at, progress, progress_total)`,
+`metrics(run_id, key, step, value, ts)`,
+`media(run_id, key, step, filename, caption, ts)` — file at `media/<run_id>/<filename>`.
