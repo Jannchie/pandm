@@ -10,8 +10,8 @@ body,
 
 body {
   background: #09090b;
-  color: #e8e8ec;
-  font-family: 'Iosevka', 'Sarasa Mono SC', 'JetBrains Mono', 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'PingFang SC', 'Microsoft YaHei', monospace;
+  color: #f4f4f7;
+  font-family: 'IBM Plex Sans', 'HarmonyOS Sans SC', 'HarmonyOS Sans', 'Noto Sans SC', 'Noto Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;

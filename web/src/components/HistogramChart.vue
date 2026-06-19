@@ -5,7 +5,7 @@ import { GridComponent, TooltipComponent, VisualMapComponent } from 'echarts/com
 import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { CHART_FONT, fmtNum, fmtStep } from '../fmt'
+import { CHART_FONT, CHART_INK, fmtNum, fmtStep } from '../fmt'
 import { getHistogram } from '../store'
 
 echarts.use([HeatmapChart, GridComponent, TooltipComponent, VisualMapComponent, CanvasRenderer])
@@ -55,14 +55,14 @@ async function update() {
         backgroundColor: 'rgba(23,23,28,0.95)',
         borderColor: 'rgba(255,255,255,0.08)',
         padding: [6, 10],
-        textStyle: { color: '#e8e8ec', fontSize: 12, fontFamily: CHART_FONT },
+        textStyle: { color: CHART_INK.fg, fontSize: 12, fontFamily: CHART_FONT },
         extraCssText: 'border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);backdrop-filter:blur(8px)',
         formatter: (p: any) => {
           const [i, j] = p.value as [number, number, number]
           const lo = edges[j]
           const hi = edges[j + 1]
           const range = lo !== undefined && hi !== undefined ? `${fmtNum(lo)} – ${fmtNum(hi)}` : `bin ${j}`
-          return `<div style="color:#5b5b66;font-size:11px">step ${fmtStep(h.steps[i])}</div>${range}<br>count ${raw[i]?.[j] ?? 0}`
+          return `<div style="color:${CHART_INK.dim};font-size:11px">step ${fmtStep(h.steps[i])}</div>${range}<br>count ${raw[i]?.[j] ?? 0}`
         },
       },
       xAxis: {
@@ -70,7 +70,7 @@ async function update() {
         data: xLabels,
         axisLine: { lineStyle: { color: 'rgba(255,255,255,0.12)' } },
         axisTick: { show: false },
-        axisLabel: { color: '#5b5b66', fontSize: 11, hideOverlap: true },
+        axisLabel: { color: CHART_INK.dim, fontSize: 11, hideOverlap: true },
         splitArea: { show: false },
       },
       yAxis: {
@@ -78,7 +78,7 @@ async function update() {
         data: yLabels,
         axisLine: { lineStyle: { color: 'rgba(255,255,255,0.12)' } },
         axisTick: { show: false },
-        axisLabel: { color: '#5b5b66', fontSize: 11, hideOverlap: true },
+        axisLabel: { color: CHART_INK.dim, fontSize: 11, hideOverlap: true },
         splitArea: { show: false },
       },
       visualMap: {

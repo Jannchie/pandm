@@ -1,7 +1,18 @@
-/** Monospace stack for ECharts canvas text — canvas doesn't inherit the page font,
- *  so every chart points its textStyle here to match the UI. */
+/** ECharts draws to a canvas that inherits neither the page font nor its CSS vars,
+ *  so charts re-declare both here. Kept in sync with uno.config.ts by hand. */
+
+// monospace (the font-mono token): keeps numeric axis labels & values aligned.
 export const CHART_FONT =
-  "'Iosevka', 'Sarasa Mono SC', 'JetBrains Mono', 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'PingFang SC', 'Microsoft YaHei', monospace"
+  "'IBM Plex Mono', 'Sarasa Mono SC', 'JetBrains Mono', 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'PingFang SC', 'Microsoft YaHei', monospace"
+
+// text-colour ramp, mirroring the fg.* tokens — the single source of truth for
+// chart text so a dark-mode legibility tweak is one edit, not a grep across charts.
+export const CHART_INK = {
+  fg: '#f4f4f7', // primary: tooltip body, hovered values   (== fg.DEFAULT)
+  mut: '#b4b4be', // secondary: axis labels, legend, series  (≈ fg.mut)
+  dim: '#86868f', // tertiary: y-axis ticks, tooltip head    (≈ fg.dim)
+  faint: '#54545e', // faintest: inactive legend items
+}
 
 /** Compact, chart-friendly number formatting. */
 export function fmtNum(v: number | null | undefined): string {

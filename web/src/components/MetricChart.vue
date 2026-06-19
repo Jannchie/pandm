@@ -7,7 +7,7 @@ import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { runColor, seriesColor } from '../colors'
-import { CHART_FONT, ema, fmtClock, fmtMetric, fmtNum, fmtStep } from '../fmt'
+import { CHART_FONT, CHART_INK, ema, fmtClock, fmtMetric, fmtNum, fmtStep } from '../fmt'
 import { getSeries, metricSpec, selectedRuns, state } from '../store'
 
 echarts.use([
@@ -97,12 +97,12 @@ function renderBar() {
             show: true,
             type: 'scroll',
             top: 0,
-            textStyle: { color: '#8f8f9a', fontSize: 11, fontFamily: CHART_FONT },
+            textStyle: { color: CHART_INK.mut, fontSize: 11, fontFamily: CHART_FONT },
             icon: 'roundRect',
             itemWidth: 10,
             itemHeight: 3,
             itemGap: 10,
-            inactiveColor: '#3a3a42',
+            inactiveColor: CHART_INK.faint,
           }
         : { show: false },
       grid: { left: 6, right: 14, top: grouped ? 28 : 12, bottom: 2, containLabel: true },
@@ -111,14 +111,14 @@ function renderBar() {
         data: categories,
         axisLine: { lineStyle: { color: 'rgba(255,255,255,0.12)' } },
         axisTick: { show: false },
-        axisLabel: { color: '#8f8f9a', fontSize: 11, interval: 0, hideOverlap: true },
+        axisLabel: { color: CHART_INK.mut, fontSize: 11, interval: 0, hideOverlap: true },
       },
       yAxis: {
         type: 'value',
         scale: !spec,
         min: spec?.min,
         max: spec?.max,
-        axisLabel: { color: '#5b5b66', fontSize: 12, formatter: (v: number) => fmtMetric(v, spec?.unit) },
+        axisLabel: { color: CHART_INK.dim, fontSize: 12, formatter: (v: number) => fmtMetric(v, spec?.unit) },
         splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
         splitNumber: 4,
       },
@@ -128,7 +128,7 @@ function renderBar() {
         backgroundColor: 'rgba(23,23,28,0.95)',
         borderColor: 'rgba(255,255,255,0.08)',
         padding: [6, 10],
-        textStyle: { color: '#e8e8ec', fontSize: 13, fontFamily: CHART_FONT },
+        textStyle: { color: CHART_INK.fg, fontSize: 13, fontFamily: CHART_FONT },
         extraCssText: 'border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);backdrop-filter:blur(8px)',
         valueFormatter: (v: number) => fmtMetric(v, spec?.unit),
       },
@@ -182,7 +182,7 @@ async function update() {
               label: {
                 formatter: fmtMetric(spec.baseline, spec.unit),
                 position: 'insideEndTop' as const,
-                color: '#8f8f9a',
+                color: CHART_INK.mut,
                 fontSize: 11,
               },
               lineStyle: { color: 'rgba(255,255,255,0.22)', type: 'dashed' as const, width: 1 },
@@ -277,12 +277,12 @@ async function update() {
             type: 'scroll',
             top: 0,
             data: legendNames,
-            textStyle: { color: '#8f8f9a', fontSize: 11, fontFamily: CHART_FONT },
+            textStyle: { color: CHART_INK.mut, fontSize: 11, fontFamily: CHART_FONT },
             icon: 'roundRect',
             itemWidth: 10,
             itemHeight: 3,
             itemGap: 10,
-            inactiveColor: '#3a3a42',
+            inactiveColor: CHART_INK.faint,
           }
         : { show: false },
       grid: { left: 6, right: 14, top: bySeries ? 28 : 12, bottom: 2, containLabel: true },
@@ -293,7 +293,7 @@ async function update() {
         axisLine: { show: false },
         axisTick: { show: false },
         axisLabel: {
-          color: '#5b5b66',
+          color: CHART_INK.dim,
           fontSize: 12,
           formatter: state.xAxis === 'step' ? (v: number) => fmtNum(v) : undefined,
         },
@@ -304,7 +304,7 @@ async function update() {
         scale: !fixed, // a declared range pins the axis; otherwise fit the data
         min: fixed && spec.min !== undefined ? spec.min : undefined,
         max: fixed && spec.max !== undefined ? spec.max : undefined,
-        axisLabel: { color: '#5b5b66', fontSize: 12, formatter: (v: number) => fmtMetric(v, spec?.unit) },
+        axisLabel: { color: CHART_INK.dim, fontSize: 12, formatter: (v: number) => fmtMetric(v, spec?.unit) },
         splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
         splitNumber: 4,
       },
@@ -313,7 +313,7 @@ async function update() {
         backgroundColor: 'rgba(23,23,28,0.95)',
         borderColor: 'rgba(255,255,255,0.08)',
         padding: [6, 10],
-        textStyle: { color: '#e8e8ec', fontSize: 13, fontFamily: CHART_FONT },
+        textStyle: { color: CHART_INK.fg, fontSize: 13, fontFamily: CHART_FONT },
         extraCssText: 'border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);backdrop-filter:blur(8px)',
         axisPointer: { type: 'line', lineStyle: { color: 'rgba(255,255,255,0.15)' } },
         formatter: (params: unknown) => {
@@ -330,11 +330,11 @@ async function update() {
               (p) =>
                 `<div style="display:flex;align-items:center;gap:6px;margin-top:3px;min-width:150px">`
                 + `<span style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:${p.color}"></span>`
-                + `<span style="color:#8f8f9a;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.seriesName)}</span>`
+                + `<span style="color:${CHART_INK.mut};max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.seriesName)}</span>`
                 + `<span style="margin-left:auto;padding-left:12px;font-family:${CHART_FONT}">${fmtMetric(p.value[1], spec?.unit)}</span></div>`,
             )
             .join('')
-          return `<div style="font-size:12px;color:#5b5b66">${head}</div>${body}`
+          return `<div style="font-size:12px;color:${CHART_INK.dim}">${head}</div>${body}`
         },
       },
       series,

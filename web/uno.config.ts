@@ -9,9 +9,9 @@ export default defineConfig({
       elev: '#17171c',
       border: '#1f1f26',
       fg: {
-        DEFAULT: '#e8e8ec',
-        mut: '#9a9aa6',
-        dim: '#6c6c78',
+        DEFAULT: '#f4f4f7',
+        mut: '#bdbdc7',
+        dim: '#909099',
       },
       accent: {
         DEFAULT: '#6e79d6',
@@ -21,12 +21,12 @@ export default defineConfig({
       err: '#f87171',
       warn: '#fbbf24',
     },
-    // whole UI is monospace, but nothing is bundled: prefer a mono the user has
-    // installed (Iosevka first, then Sarasa for matched CJK), else system mono +
-    // system CJK. font-sans and font-mono share the stack so all text matches.
+    // readable sans body, monospace kept only for aligned numbers / code; nothing
+    // is bundled — prefer fonts the user has installed (IBM Plex / HarmonyOS / Noto
+    // first, with CJK variants), else fall back to system UI + system CJK.
     fontFamily: {
-      sans: "'Iosevka', 'Sarasa Mono SC', 'JetBrains Mono', 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'PingFang SC', 'Microsoft YaHei', monospace",
-      mono: "'Iosevka', 'Sarasa Mono SC', 'JetBrains Mono', 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'PingFang SC', 'Microsoft YaHei', monospace",
+      sans: "'IBM Plex Sans', 'HarmonyOS Sans SC', 'HarmonyOS Sans', 'Noto Sans SC', 'Noto Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif",
+      mono: "'IBM Plex Mono', 'Sarasa Mono SC', 'JetBrains Mono', 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'PingFang SC', 'Microsoft YaHei', monospace",
     },
   },
   shortcuts: {
