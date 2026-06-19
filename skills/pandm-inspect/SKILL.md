@@ -73,9 +73,9 @@ aligned to the `runs` array — `stats[k][i]` is `{min,max,last,count}` for run 
 
 ## Semantics to keep in mind
 
-- **`stats[key]`** = `{min, max, last, count}` per metric — `last` is the *latest*
-  logged value (max step), `max`/`min` the best. Per-key extrema come from
-  *different* steps, so `max(spearman)` and `min(mae)` need not be the same model.
+- **Per-key extrema come from *different* steps.** In `stats[key]`, `max`/`min` are
+  each metric's best over the whole run, so `max(spearman)` and `min(mae)` need not be
+  the same checkpoint — don't read them as one model's row.
 - **`summary[key]`** is an *author-written* run-level scalar (`run.summary({...})`),
   typically the chosen checkpoint's self-consistent metric row — empty unless the
   training code wrote it. Prefer it over stitching per-key extrema when present.
