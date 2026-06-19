@@ -16,6 +16,7 @@ export default defineWorkersConfig(async () => {
             compatibilityDate: '2025-09-01',
             d1Databases: ['DB'],
             r2Buckets: ['MEDIA'],
+            durableObjects: { RUN_STORE: { className: 'RunStore', useSQLite: true } },
             bindings: {
               GITHUB_CLIENT_ID: 'cid',
               GITHUB_CLIENT_SECRET: 'csecret',

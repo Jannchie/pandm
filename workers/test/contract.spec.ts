@@ -347,32 +347,36 @@ describe('run lifecycle', () => {
   })
 })
 
-describe('summary materialization', () => {
-  it('backfills a pre-migration run (summary NULL) on read, then keeps patching', async () => {
-    await post('/api/runs', { id: 'bf000001', project: 'bf', name: 'old' }, keyOf(alice))
-    await post(
-      '/api/runs/bf000001/metrics',
-      { rows: [{ key: 'loss', step: 0, value: 3.0, ts: 1 }, { key: 'acc', step: 0, value: 0.1, ts: 1 }] },
-      keyOf(alice),
+describe('legacy fallback (pre-DO runs)', () => {
+  it('serves a run whose series live in the D1 metrics table, backfilling summary on read', async () => {
+    // A pre-DO run: stats IS NULL (never seen by a RunStore), summary NULL, and its
+    // history sitting in the D1 metrics table — exactly the on-disk shape from before
+    // this refactor. The read path must aggregate + backfill it, not route to a DO.
+    await env.DB.prepare(
+      `INSERT INTO runs (id, project, name, description, status, config, created_at, updated_at, user_id)
+       VALUES ('lg000001', 'bf', 'old', '', 'running', '{}', 1, 1, ?1)`,
     )
-    // simulate a row created before the summary column existed
-    await env.DB.prepare("UPDATE runs SET summary = NULL WHERE id = 'bf000001'").run()
+      .bind(alice.id)
+      .run()
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO metrics (run_id, key, step, value, ts) VALUES ('lg000001','loss',0,3.0,1)"),
+      env.DB.prepare("INSERT INTO metrics (run_id, key, step, value, ts) VALUES ('lg000001','acc',0,0.1,1)"),
+      env.DB.prepare("INSERT INTO metrics (run_id, key, step, value, ts) VALUES ('lg000001','loss',1,2.0,2)"),
+    ])
 
-    // ingest against a NULL summary must NOT create a partial one (it would shadow 'acc')
-    await post('/api/runs/bf000001/metrics', { rows: [{ key: 'loss', step: 1, value: 2.0, ts: 2 }] }, keyOf(alice))
-    const nul = await env.DB.prepare("SELECT summary FROM runs WHERE id = 'bf000001'").first<{ summary: string | null }>()
-    expect(nul!.summary).toBeNull()
-
-    // first read aggregates the full history and writes it back
-    const run = (await (await api('/api/runs/bf000001', { headers: keyOf(alice) })).json()) as any
+    // detail read aggregates the full history, materializes summary + stats, writes summary back
+    const run = (await (await api('/api/runs/lg000001', { headers: keyOf(alice) })).json()) as any
     expect(run.summary).toEqual({ loss: 2.0, acc: 0.1 })
-    const filled = await env.DB.prepare("SELECT summary FROM runs WHERE id = 'bf000001'").first<{ summary: string | null }>()
+    expect(run.stats.loss).toEqual({ min: 2.0, max: 3.0, count: 2, last: 2.0 })
+    const filled = await env.DB.prepare("SELECT summary FROM runs WHERE id = 'lg000001'").first<{ summary: string | null }>()
     expect(JSON.parse(filled!.summary!)).toEqual({ loss: 2.0, acc: 0.1 })
 
-    // subsequent ingest patches the materialized value, older keys survive
-    await post('/api/runs/bf000001/metrics', { rows: [{ key: 'loss', step: 2, value: 1.0, ts: 3 }] }, keyOf(alice))
-    const list = (await (await api('/api/runs?project=bf', { headers: keyOf(alice) })).json()) as any
-    expect(list[0].summary).toEqual({ loss: 1.0, acc: 0.1 })
+    // and the series itself is served from the D1 fallback, not a (empty) DO
+    const series = (await (await api('/api/runs/lg000001/metrics/loss', { headers: keyOf(alice) })).json()) as any
+    expect(series.steps).toEqual([0, 1])
+    expect(series.values).toEqual([3.0, 2.0])
+    const keys = (await (await api('/api/runs/lg000001/metrics', { headers: keyOf(alice) })).json()) as any
+    expect(keys).toContainEqual({ key: 'loss', points: 2, last_step: 1 })
   })
 })
 

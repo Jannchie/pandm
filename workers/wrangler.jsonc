@@ -24,6 +24,11 @@
       "bucket_name": "pandm-media"
     }
   ],
+  // one RunStore per run absorbs the metric/histogram firehose off D1 (run_store.ts)
+  "durable_objects": {
+    "bindings": [{ "name": "RUN_STORE", "class_name": "RunStore" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunStore"] }],
   "observability": { "enabled": true }
   // secrets (set via `wrangler secret put`):
   //   GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET — GitHub OAuth App

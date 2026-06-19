@@ -6,15 +6,23 @@
 import { Hono } from 'hono'
 import * as auth from './auth'
 import * as db from './db'
+import { RunStore } from './run_store'
 
 export interface Env {
   DB: D1Database
   MEDIA: R2Bucket
   ASSETS: Fetcher
+  RUN_STORE: DurableObjectNamespace<RunStore>
   GITHUB_CLIENT_ID: string
   GITHUB_CLIENT_SECRET: string
   PANDM_SECRET_KEY: string
 }
+
+export { RunStore }
+
+// one DO per run — deterministic name routing, so every request for a run lands
+// on the same instance that holds its in-flight series.
+const store = (env: Env, runId: string) => env.RUN_STORE.getByName(runId)
 
 type Ctx = { Bindings: Env; Variables: { user: db.User; runMeta: db.RunMeta } }
 
@@ -99,7 +107,10 @@ app.get('/api/runs/:id', async (c) => {
 
 app.get('/api/runs/:id/metrics', async (c) => {
   const runId = c.req.param('id')
-  return (await ownerGuard(c, runId)) ?? cachedJson(c, () => db.metricKeys(c.env.DB, runId))
+  const guard = await ownerGuard(c, runId)
+  if (guard) return guard
+  const legacy = c.get('runMeta').legacy
+  return cachedJson(c, () => (legacy ? db.metricKeys(c.env.DB, runId) : store(c.env, runId).metricKeys()))
 })
 
 // metric keys may contain slashes (e.g. "val/loss") — wildcard + manual extraction
@@ -109,15 +120,19 @@ app.get('/api/runs/:id/metrics/*', async (c) => {
   if (guard) return guard
   const key = decodeURIComponent(c.req.path.split('/metrics/')[1] ?? '')
   const maxPoints = Number.parseInt(c.req.query('max_points') ?? '1500')
-  const afterStep = c.req.query('after_step')
+  const afterStep = c.req.query('after_step') !== undefined ? Number(c.req.query('after_step')) : null
+  const legacy = c.get('runMeta').legacy
   return cachedJson(c, () =>
-    db.metricSeries(c.env.DB, runId, key, maxPoints, afterStep !== undefined ? Number(afterStep) : null),
+    legacy ? db.metricSeries(c.env.DB, runId, key, maxPoints, afterStep) : store(c.env, runId).metricSeries(key, maxPoints, afterStep),
   )
 })
 
 app.get('/api/runs/:id/histograms', async (c) => {
   const runId = c.req.param('id')
-  return (await ownerGuard(c, runId)) ?? cachedJson(c, () => db.histogramKeys(c.env.DB, runId))
+  const guard = await ownerGuard(c, runId)
+  if (guard) return guard
+  const legacy = c.get('runMeta').legacy
+  return cachedJson(c, () => (legacy ? db.histogramKeys(c.env.DB, runId) : store(c.env, runId).histogramKeys()))
 })
 
 // histogram keys may contain slashes (e.g. "dist/reward") — wildcard + manual extraction
@@ -127,7 +142,10 @@ app.get('/api/runs/:id/histograms/*', async (c) => {
   if (guard) return guard
   const key = decodeURIComponent(c.req.path.split('/histograms/')[1] ?? '')
   const maxSteps = Number.parseInt(c.req.query('max_steps') ?? '200')
-  return cachedJson(c, () => db.histogramSeries(c.env.DB, runId, key, maxSteps))
+  const legacy = c.get('runMeta').legacy
+  return cachedJson(c, () =>
+    legacy ? db.histogramSeries(c.env.DB, runId, key, maxSteps) : store(c.env, runId).histogramSeries(key, maxSteps),
+  )
 })
 
 app.get('/api/runs/:id/media', async (c) => {
@@ -201,13 +219,7 @@ app.post('/api/runs/:id/metrics', async (c) => {
   const guard = await ownerGuard(c, runId)
   if (guard) return guard
   const { rows } = await c.req.json<{ rows: db.MetricIn[] }>()
-  let inserted: number
-  if (rows.length > 0 && rows.every((r) => r.seq !== null && r.seq !== undefined)) {
-    inserted = await db.logMetricsSeq(c.env.DB, runId, rows)
-  } else {
-    await db.logMetrics(c.env.DB, runId, rows)
-    inserted = rows.length
-  }
+  const inserted = await store(c.env, runId).ingestMetrics(runId, rows)
   return c.json({ inserted })
 })
 
@@ -216,13 +228,7 @@ app.post('/api/runs/:id/histograms', async (c) => {
   const guard = await ownerGuard(c, runId)
   if (guard) return guard
   const { rows } = await c.req.json<{ rows: db.HistogramIn[] }>()
-  let inserted: number
-  if (rows.length > 0 && rows.every((r) => r.seq !== null && r.seq !== undefined)) {
-    inserted = await db.logHistogramsSeq(c.env.DB, runId, rows)
-  } else {
-    await db.logHistograms(c.env.DB, runId, rows)
-    inserted = rows.length
-  }
+  const inserted = await store(c.env, runId).ingestHistograms(runId, rows)
   return c.json({ inserted })
 })
 
@@ -255,7 +261,7 @@ app.post('/api/runs/:id/heartbeat', async (c) => {
   const runId = c.req.param('id')
   const guard = await ownerGuard(c, runId)
   if (guard) return guard
-  await db.heartbeat(c.env.DB, runId) // server clock — immune to client clock skew
+  await store(c.env, runId).heartbeat(runId, Date.now() / 1000) // server clock — immune to client clock skew
   return c.json({ ok: true })
 })
 
@@ -264,7 +270,7 @@ app.post('/api/runs/:id/progress', async (c) => {
   const guard = await ownerGuard(c, runId)
   if (guard) return guard
   const body = await c.req.json<{ current: number; total?: number | null; ts?: number }>()
-  await db.updateProgress(c.env.DB, runId, body.current, body.total ?? null, body.ts ?? Date.now() / 1000)
+  await store(c.env, runId).progress(runId, body.current, body.total ?? null, body.ts ?? Date.now() / 1000)
   return c.json({ ok: true })
 })
 
@@ -283,9 +289,15 @@ app.post('/api/runs/:id/finish', async (c) => {
   const runId = c.req.param('id')
   const guard = await ownerGuard(c, runId)
   if (guard) return guard
-  const body = await c.req.json<{ status?: string; finished_at?: number; metric_meta?: Record<string, unknown> }>()
-  await db.finishRun(c.env.DB, runId, body.status ?? 'finished', body.finished_at ?? null, body.metric_meta ?? null)
-  return c.json({ status: body.status ?? 'finished' })
+  const body = await c.req.json<{
+    status?: string
+    finished_at?: number
+    summary?: Record<string, number>
+    metric_meta?: Record<string, unknown>
+  }>()
+  const status = body.status ?? 'finished'
+  await store(c.env, runId).finish(runId, status, body.finished_at ?? null, body.summary ?? null, body.metric_meta ?? null)
+  return c.json({ status })
 })
 
 app.delete('/api/runs/:id', async (c) => {
@@ -293,14 +305,16 @@ app.delete('/api/runs/:id', async (c) => {
   const guard = await ownerGuard(c, runId)
   if (guard) return guard
   const filenames = await db.deleteRun(c.env.DB, runId)
+  await store(c.env, runId).deleteAll() // drop the run's time series in its DO
   if (filenames.length > 0) await c.env.MEDIA.delete(filenames.map((f) => `media/${runId}/${f}`))
   return c.json({ deleted: true })
 })
 
 app.delete('/api/projects/:name', async (c) => {
   const project = c.req.param('name')
-  const keys = await db.deleteProject(c.env.DB, c.get('user').id, project)
-  for (let i = 0; i < keys.length; i += 1000) await c.env.MEDIA.delete(keys.slice(i, i + 1000))
+  const { mediaKeys, runIds } = await db.deleteProject(c.env.DB, c.get('user').id, project)
+  await Promise.all(runIds.map((id) => store(c.env, id).deleteAll()))
+  for (let i = 0; i < mediaKeys.length; i += 1000) await c.env.MEDIA.delete(mediaKeys.slice(i, i + 1000))
   return c.json({ deleted: true })
 })
 

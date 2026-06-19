@@ -25,6 +25,7 @@ export interface RunRow {
   progress_total: number | null // target; NULL = unknown
   progress_ts: number | null // when progress was last reported
   summary: string | null // materialized {key: lastValue}; NULL = pre-migration row
+  stats: string | null // materialized {key:{min,max,count,last}} by the DO; NULL = legacy run
   metric_meta: string // author-declared {key: {min,max,unit,goal,baseline}} display specs
 }
 
@@ -127,10 +128,12 @@ export async function createRun(
   description = '',
 ): Promise<void> {
   const ts = createdAt ?? now()
+  // stats = '{}' (not NULL) marks this run as DO-served — its series live in the
+  // RunStore Durable Object, and listRuns/getRun read the materialized stats here.
   await db
     .prepare(
-      `INSERT OR IGNORE INTO runs (id, project, name, description, status, config, created_at, updated_at, user_id, summary)
-       VALUES (?1, ?2, ?3, ?4, 'running', ?5, ?6, ?7, ?8, '{}')`,
+      `INSERT OR IGNORE INTO runs (id, project, name, description, status, config, created_at, updated_at, user_id, summary, stats)
+       VALUES (?1, ?2, ?3, ?4, 'running', ?5, ?6, ?7, ?8, '{}', '{}')`,
     )
     .bind(runId, project, name, description, JSON.stringify(config ?? {}), ts, ts, userId)
     .run()
@@ -139,11 +142,16 @@ export async function createRun(
 export interface RunMeta {
   user_id: number
   updated_at: number
+  legacy: number // 1 = pre-DO run (series in D1); 0 = DO-served. Routes reads.
 }
 
-/** Owner + freshness in one row read — the cache key for run-scoped responses. */
+/** Owner + freshness + engine in one row read — the cache key for run-scoped
+ * responses and the legacy/DO routing flag. */
 export const runMeta = async (db: D1Database, runId: string): Promise<RunMeta | null> =>
-  db.prepare('SELECT user_id, updated_at FROM runs WHERE id = ?1').bind(runId).first<RunMeta>()
+  db
+    .prepare('SELECT user_id, updated_at, (stats IS NULL) AS legacy FROM runs WHERE id = ?1')
+    .bind(runId)
+    .first<RunMeta>()
 
 export const runOwner = async (db: D1Database, runId: string): Promise<number | null> => {
   const row = await runMeta(db, runId)
@@ -242,19 +250,25 @@ export async function listRuns(db: D1Database, userId: number, project: string |
     ? db.prepare('SELECT * FROM runs WHERE user_id = ?1 AND project = ?2 ORDER BY created_at DESC').bind(userId, project)
     : db.prepare('SELECT * FROM runs WHERE user_id = ?1 ORDER BY created_at DESC').bind(userId)
   const { results } = await stmt.all<RunRow>()
-  const backfilled = await backfillSummaries(db, results)
-  const ids = results.map((r) => r.id)
+  // DO-served runs carry their summary + stats materialized on this row — no scan.
+  // Only pre-DO ("legacy", stats IS NULL) runs still aggregate over the metrics table.
+  const legacy = results.filter((r) => r.stats === null)
+  const backfilled = await backfillSummaries(db, legacy)
+  const ids = legacy.map((r) => r.id)
   const last = await summaries(db, ids)
   const stats = await metricStats(db, ids, last)
   return results.map((r) =>
-    runToDict(r, r.summary !== null ? JSON.parse(r.summary) : (backfilled[r.id] ?? {}), stats[r.id] ?? {}),
+    r.stats !== null
+      ? runToDict(r, JSON.parse(r.summary ?? '{}'), JSON.parse(r.stats))
+      : runToDict(r, r.summary !== null ? JSON.parse(r.summary) : (backfilled[r.id] ?? {}), stats[r.id] ?? {}),
   )
 }
 
 export async function getRun(db: D1Database, runId: string, userId: number) {
   const row = await db.prepare('SELECT * FROM runs WHERE id = ?1').bind(runId).first<RunRow>()
   if (!row || row.user_id !== userId) return null // foreign run is indistinguishable from absent
-  const backfilled = await backfillSummaries(db, [row])
+  if (row.stats !== null) return runToDict(row, JSON.parse(row.summary ?? '{}'), JSON.parse(row.stats)) // DO-served
+  const backfilled = await backfillSummaries(db, [row]) // legacy fallback
   const last = await summaries(db, [runId])
   const stats = await metricStats(db, [runId], last)
   return runToDict(row, row.summary !== null ? JSON.parse(row.summary) : (backfilled[runId] ?? {}), stats[runId] ?? {})
@@ -275,13 +289,18 @@ export async function deleteRun(db: D1Database, runId: string): Promise<string[]
   return results.map((r) => r.filename) // caller removes the R2 objects
 }
 
-/** Delete every run in a project (and their children). Returns R2 media keys to remove. */
-export async function deleteProject(db: D1Database, userId: number, project: string): Promise<string[]> {
+/** Delete every run in a project (and their children). Returns the R2 media keys to
+ * remove and the run ids (the caller also drops each run's RunStore DO). */
+export async function deleteProject(
+  db: D1Database,
+  userId: number,
+  project: string,
+): Promise<{ mediaKeys: string[]; runIds: string[] }> {
   const { results: runs } = await db
     .prepare('SELECT id FROM runs WHERE user_id = ?1 AND project = ?2')
     .bind(userId, project)
     .all<{ id: string }>()
-  if (runs.length === 0) return []
+  if (runs.length === 0) return { mediaKeys: [], runIds: [] }
   const runIds = runs.map((r) => r.id)
   const placeholders = runIds.map((_, i) => `?${i + 1}`).join(',')
   const { results: media } = await db
@@ -295,112 +314,21 @@ export async function deleteProject(db: D1Database, userId: number, project: str
     db.prepare(`DELETE FROM sync_progress WHERE run_id IN (${placeholders})`).bind(...runIds),
     db.prepare('DELETE FROM runs WHERE user_id = ?1 AND project = ?2').bind(userId, project),
   ])
-  return media.map((m) => `media/${m.run_id}/${m.filename}`) // caller removes the R2 objects
+  return { mediaKeys: media.map((m) => `media/${m.run_id}/${m.filename}`), runIds }
 }
 
-export const heartbeat = (db: D1Database, runId: string) =>
-  db.prepare("UPDATE runs SET updated_at = ?1 WHERE id = ?2 AND status = 'running'").bind(now(), runId).run()
-
-/** Record progress (also a heartbeat). total=null keeps the previously set total. */
-export const updateProgress = (db: D1Database, runId: string, current: number, total: number | null, ts: number) =>
-  total == null
-    ? db
-        .prepare("UPDATE runs SET progress = ?1, progress_ts = ?2, updated_at = ?3 WHERE id = ?4 AND status = 'running'")
-        .bind(current, ts, ts, runId)
-        .run()
-    : db
-        .prepare(
-          "UPDATE runs SET progress = ?1, progress_total = ?2, progress_ts = ?3, updated_at = ?4 WHERE id = ?5 AND status = 'running'",
-        )
-        .bind(current, total, ts, ts, runId)
-        .run()
+// heartbeat / progress / finish now live in the RunStore DO (run_store.ts):
+// the DO owns the run's liveness and writes it through to this catalog row.
 
 /** Merge per-metric display specs into runs.metric_meta — run.define_metric pushed
  *  live (like progress), so a running run's fixed axis/baseline show up right away. */
 export const setMetricMeta = (db: D1Database, runId: string, specs: Record<string, unknown>) =>
   db.prepare('UPDATE runs SET metric_meta = json_patch(metric_meta, ?1) WHERE id = ?2').bind(JSON.stringify(specs), runId).run()
 
-export const finishRun = (
-  db: D1Database,
-  runId: string,
-  status: string,
-  finishedAt: number | null,
-  metricMeta?: Record<string, unknown> | null,
-) => {
-  const ts = finishedAt ?? now()
-  // metric_meta is pushed live via POST /meta while the run is alive; this
-  // finish-time write is the offline / `pandm sync` backstop — overwrite with the
-  // full author-sent map, skip if empty so a re-finish can't blank it.
-  if (metricMeta && Object.keys(metricMeta).length > 0) {
-    return db
-      .prepare('UPDATE runs SET status = ?1, finished_at = ?2, updated_at = ?3, metric_meta = ?4 WHERE id = ?5')
-      .bind(status, ts, ts, JSON.stringify(metricMeta), runId)
-      .run()
-  }
-  return db
-    .prepare('UPDATE runs SET status = ?1, finished_at = ?2, updated_at = ?3 WHERE id = ?4')
-    .bind(status, ts, ts, runId)
-    .run()
-}
-
-// ----------------------------------------------------------------- metrics
-
-/** Last pushed value per key — the increment to json_patch into runs.summary. */
-const lastByKey = (rows: MetricIn[]): Record<string, number> => {
-  const out: Record<string, number> = {}
-  for (const r of rows) out[r.key] = r.value // rows arrive in client rowid order
-  return out
-}
-
-/** The freshness+summary update every ingest batch carries (same single row write).
- * A NULL summary (pre-migration run) stays NULL: the read path backfills it from
- * the full history; patching '{}' here instead would shadow older keys. */
-const touchRun = (db: D1Database, runId: string, ts: number, rows: MetricIn[]) =>
-  db
-    .prepare(
-      `UPDATE runs SET updated_at = ?1,
-         summary = CASE WHEN summary IS NULL THEN NULL ELSE json_patch(summary, ?2) END
-       WHERE id = ?3`,
-    )
-    .bind(ts, JSON.stringify(lastByKey(rows)), runId)
-
-/** Plain ingest (legacy PANDM_REMOTE path: no seq, no dedup). */
-export async function logMetrics(db: D1Database, runId: string, rows: MetricIn[]): Promise<void> {
-  if (rows.length === 0) return
-  const stmts = rows.map((r) =>
-    db.prepare('INSERT INTO metrics (run_id, key, step, value, ts) VALUES (?1, ?2, ?3, ?4, ?5)').bind(runId, r.key, r.step, r.value, r.ts),
-  )
-  stmts.push(touchRun(db, runId, Math.max(...rows.map((r) => r.ts)), rows))
-  await db.batch(stmts)
-}
-
-/** Watermarked ingest: rows at or below the stored watermark are replays.
- * The client-side lease serializes pushes per run, so the read-then-write
- * here doesn't need its own lock (same guarantee as the Python server). */
-export async function logMetricsSeq(db: D1Database, runId: string, rows: MetricIn[]): Promise<number> {
-  const wm = await db
-    .prepare('SELECT last_metrics_rowid FROM sync_progress WHERE run_id = ?1')
-    .bind(runId)
-    .first<{ last_metrics_rowid: number }>()
-  const last = wm?.last_metrics_rowid ?? 0
-  const fresh = rows.filter((r) => (r.seq ?? 0) > last)
-  if (fresh.length === 0) return 0
-  const hi = Math.max(...fresh.map((r) => r.seq!))
-  const stmts = fresh.map((r) =>
-    db.prepare('INSERT INTO metrics (run_id, key, step, value, ts) VALUES (?1, ?2, ?3, ?4, ?5)').bind(runId, r.key, r.step, r.value, r.ts),
-  )
-  stmts.push(
-    db
-      .prepare(
-        `INSERT INTO sync_progress (run_id, last_metrics_rowid) VALUES (?1, ?2)
-         ON CONFLICT(run_id) DO UPDATE SET last_metrics_rowid = MAX(last_metrics_rowid, excluded.last_metrics_rowid)`,
-      )
-      .bind(runId, hi),
-    touchRun(db, runId, Math.max(...fresh.map((r) => r.ts)), fresh),
-  )
-  await db.batch(stmts) // one transaction, one roundtrip
-  return fresh.length
-}
+// -------------------------------------------------- metrics (legacy reads)
+// Ingest moved to the RunStore DO. The query helpers below remain only as the
+// read fallback for pre-DO runs whose series still live in the D1 metrics table
+// (runMeta().legacy === 1). New runs never touch them.
 
 export const metricKeys = async (db: D1Database, runId: string) => {
   const { results } = await db
@@ -466,45 +394,8 @@ export interface HistogramIn {
   seq?: number | null
 }
 
-/** Plain ingest (legacy PANDM_REMOTE path: no seq, no dedup). */
-export async function logHistograms(db: D1Database, runId: string, rows: HistogramIn[]): Promise<void> {
-  if (rows.length === 0) return
-  const stmts = rows.map((r) =>
-    db
-      .prepare('INSERT INTO histograms (run_id, key, step, bins, counts, ts) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
-      .bind(runId, r.key, r.step, JSON.stringify(r.bins), JSON.stringify(r.counts), r.ts),
-  )
-  stmts.push(db.prepare('UPDATE runs SET updated_at = ?1 WHERE id = ?2').bind(Math.max(...rows.map((r) => r.ts)), runId))
-  await db.batch(stmts)
-}
-
-/** Watermarked ingest: rows at or below the stored watermark are replays. */
-export async function logHistogramsSeq(db: D1Database, runId: string, rows: HistogramIn[]): Promise<number> {
-  const wm = await db
-    .prepare('SELECT last_histograms_rowid FROM sync_progress WHERE run_id = ?1')
-    .bind(runId)
-    .first<{ last_histograms_rowid: number }>()
-  const last = wm?.last_histograms_rowid ?? 0
-  const fresh = rows.filter((r) => (r.seq ?? 0) > last)
-  if (fresh.length === 0) return 0
-  const hi = Math.max(...fresh.map((r) => r.seq!))
-  const stmts = fresh.map((r) =>
-    db
-      .prepare('INSERT INTO histograms (run_id, key, step, bins, counts, ts) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
-      .bind(runId, r.key, r.step, JSON.stringify(r.bins), JSON.stringify(r.counts), r.ts),
-  )
-  stmts.push(
-    db
-      .prepare(
-        `INSERT INTO sync_progress (run_id, last_histograms_rowid) VALUES (?1, ?2)
-         ON CONFLICT(run_id) DO UPDATE SET last_histograms_rowid = MAX(last_histograms_rowid, excluded.last_histograms_rowid)`,
-      )
-      .bind(runId, hi),
-    db.prepare('UPDATE runs SET updated_at = ?1 WHERE id = ?2').bind(Math.max(...fresh.map((r) => r.ts)), runId),
-  )
-  await db.batch(stmts)
-  return fresh.length
-}
+// histogram ingest also moved to the RunStore DO; the reads below stay for the
+// legacy fallback only.
 
 export const histogramKeys = async (db: D1Database, runId: string) => {
   const { results } = await db
