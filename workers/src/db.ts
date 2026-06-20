@@ -27,6 +27,8 @@ export interface RunRow {
   summary: string | null // materialized {key: lastValue}; NULL = pre-migration row
   stats: string | null // materialized {key:{min,max,count,last}} by the DO; NULL = legacy run
   metric_meta: string // author-declared {key: {min,max,unit,goal,baseline}} display specs
+  tags: string // JSON array of free-form labels (init(tags=...))
+  group_name: string | null // buckets related runs (init(group=...)); `group` is a SQL keyword
 }
 
 export interface MetricIn {
@@ -61,6 +63,8 @@ export function runToDict(
     project: row.project,
     name: row.name,
     description: row.description ?? '',
+    tags: JSON.parse(row.tags ?? '[]'),
+    group: row.group_name ?? null,
     status,
     config: JSON.parse(row.config),
     created_at: row.created_at,
@@ -79,6 +83,19 @@ export function runToDict(
 // 12 hex chars = 48 bits: birthday-collision ~16M runs, vs ~77k at 8 chars.
 // Server fallback only — the SDK supplies its own id. Old 8-char ids stay valid.
 export const newRunId = () => crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+
+/** Normalize free-form tags: non-empty strings, trimmed, de-duped, and bounded
+ * (<=32 tags, <=64 chars each) so a stray payload can't bloat the run row. */
+export function normTags(tags: unknown): string[] {
+  if (!Array.isArray(tags)) return []
+  const out: string[] = []
+  for (const t of tags) {
+    const s = String(t).trim().slice(0, 64)
+    if (s && !out.includes(s)) out.push(s)
+    if (out.length >= 32) break
+  }
+  return out
+}
 
 const slug = (text: string) => text.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'x'
 
@@ -128,16 +145,18 @@ export async function createRun(
   createdAt: number | null,
   userId: number,
   description = '',
+  tags: string[] = [],
+  group: string | null = null,
 ): Promise<void> {
   const ts = createdAt ?? now()
   // stats = '{}' (not NULL) marks this run as DO-served — its series live in the
   // RunStore Durable Object, and listRuns/getRun read the materialized stats here.
   await db
     .prepare(
-      `INSERT OR IGNORE INTO runs (id, project, name, description, status, config, created_at, updated_at, user_id, summary, stats)
-       VALUES (?1, ?2, ?3, ?4, 'running', ?5, ?6, ?7, ?8, '{}', '{}')`,
+      `INSERT OR IGNORE INTO runs (id, project, name, description, status, config, created_at, updated_at, user_id, summary, stats, tags, group_name)
+       VALUES (?1, ?2, ?3, ?4, 'running', ?5, ?6, ?7, ?8, '{}', '{}', ?9, ?10)`,
     )
-    .bind(runId, project, name, description, JSON.stringify(config ?? {}), ts, ts, userId)
+    .bind(runId, project, name, description, JSON.stringify(config ?? {}), ts, ts, userId, JSON.stringify(normTags(tags)), group || null)
     .run()
 }
 

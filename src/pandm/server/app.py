@@ -31,6 +31,8 @@ class RunIn(BaseModel):
     project: str = "default"
     name: str = "unnamed"
     description: str = ""  # one-line human note on the run (init(description=...))
+    tags: list[str] = Field(default_factory=list)  # free-form labels for filtering
+    group: str | None = None  # buckets related runs (a sweep, a multi-process job)
     config: dict[str, Any] = Field(default_factory=dict)
     created_at: float | None = None
 
@@ -192,6 +194,7 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
         store.create_run(
             run_id, body.project, body.name, body.config, body.created_at,
             user_id=user["id"] if user else None, description=body.description,
+            tags=body.tags, group=body.group,
         )
         return {"id": run_id}
 

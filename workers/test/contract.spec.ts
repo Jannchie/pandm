@@ -113,6 +113,22 @@ describe('metrics ingest & watermark', () => {
     expect(run.summary.acc).toBe(0.9)
   })
 
+  it('roundtrips run tags and group, normalizing tags', async () => {
+    await post(
+      '/api/runs',
+      { id: 'tag00001', project: 'p', name: 'tagged', tags: ['baseline', 'lr-sweep', 'baseline', ' trim ', ''], group: 'exp-42' },
+      keyOf(alice),
+    )
+    const run = (await (await api('/api/runs/tag00001', { headers: keyOf(alice) })).json()) as any
+    expect(run.group).toBe('exp-42')
+    expect(run.tags).toEqual(['baseline', 'lr-sweep', 'trim']) // de-duped, trimmed, empties dropped
+
+    await post('/api/runs', { id: 'tag00002', project: 'p', name: 'plain' }, keyOf(alice))
+    const plain = (await (await api('/api/runs/tag00002', { headers: keyOf(alice) })).json()) as any
+    expect(plain.tags).toEqual([])
+    expect(plain.group).toBeNull()
+  })
+
   it('treats non-finite metric values as chart gaps without poisoning stats', async () => {
     await post('/api/runs', { id: 'nan00001', project: 'p', name: 'nan' }, keyOf(alice))
     // NaN/Infinity serialize to null over JSON — the realistic on-wire form of a diverged loss

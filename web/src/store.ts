@@ -32,7 +32,12 @@ export const visibleRuns = computed(() => {
   const q = state.search.trim().toLowerCase()
   if (!q) return state.runs
   return state.runs.filter(
-    (r) => r.name.toLowerCase().includes(q) || r.id.includes(q) || r.project.toLowerCase().includes(q),
+    (r) =>
+      r.name.toLowerCase().includes(q) ||
+      r.id.includes(q) ||
+      r.project.toLowerCase().includes(q) ||
+      (r.group?.toLowerCase().includes(q) ?? false) ||
+      r.tags.some((t) => t.toLowerCase().includes(q)),
   )
 })
 

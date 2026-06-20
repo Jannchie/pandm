@@ -118,6 +118,16 @@ function confirmDelete(run: Run) {
           <div v-if="run.description" class="text-[12.5px] text-fg-mut/80 truncate leading-tight">
             {{ run.description }}
           </div>
+          <div v-if="run.group || run.tags.length" class="flex items-center gap-1 flex-wrap mt-0.5">
+            <span
+              v-if="run.group"
+              class="text-[11px] leading-tight px-1 rounded bg-elev text-fg-mut shrink-0"
+              :title="`group: ${run.group}`"
+            >▤ {{ run.group }}</span>
+            <span v-for="t in run.tags" :key="t" class="text-[11px] leading-tight px-1 rounded bg-elev/60 text-fg-dim shrink-0">
+              {{ t }}
+            </span>
+          </div>
           <div class="text-[12.5px] text-fg-dim truncate leading-tight">
             <template v-if="run.status === 'running' && eta && eta.fraction != null">
               {{ Math.round(eta.fraction * 100) }}%<template v-if="eta.finishAt"> · ~{{ fmtDuration(eta.finishAt - now) }} left</template>

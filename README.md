@@ -130,7 +130,7 @@ Without OAuth env vars the server falls back to single-tenant mode — `pandm se
 
 | | |
 |---|---|
-| `pandm.init(project, name=None, config=None, *, description=None, id=None, resume=False, total_steps=None, directory=None, remote=None, api_key=None)` | start (or resume) a run; `description` is a one-line subtitle |
+| `pandm.init(project, name=None, config=None, *, description=None, id=None, resume=False, total_steps=None, tags=None, group=None, directory=None, remote=None, api_key=None)` | start (or resume) a run; `description` is a one-line subtitle, `tags=[...]` adds filterable labels, `group=` buckets related runs |
 | `run.log(metrics, step=None)` | log scalar metrics |
 | `run.log_image(key, image, step=None, caption=None)` | log an image |
 | `run.summary(values)` | record run-level scalars (the chosen checkpoint's metric row); merges across calls |

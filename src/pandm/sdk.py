@@ -193,6 +193,8 @@ def init(
     id: str | None = None,
     resume: bool | str = False,
     total_steps: int | None = None,
+    tags: list[str] | None = None,
+    group: str | None = None,
     directory: str | os.PathLike | None = None,
     remote: str | bool | None = None,
     api_key: str | None = None,
@@ -205,6 +207,10 @@ def init(
     `total_steps=` declares the training length so the dashboard can estimate an
     ETA: progress then tracks the latest `log(step=...)` automatically. For other
     units (epochs, samples) call `run.set_progress(current, total)` instead.
+
+    `tags=` attaches free-form labels and `group=` buckets related runs (a sweep,
+    a multi-process job); both are shown in the dashboard and filterable from its
+    search box.
 
     `id=` sets the run id (otherwise random). `resume=` continues an existing run
     under that id — `True`/`"allow"` reopens it if present (else starts fresh),
@@ -233,6 +239,7 @@ def init(
     run = Run(
         backend, project=project, name=name, config=config,
         description=description, total_steps=total_steps, run_id=id, resume=resume,
+        tags=tags, group=group,
     )
     _active_runs.append(run)
     _register_atexit()
@@ -295,12 +302,16 @@ class Run:
         total_steps: int | None = None,
         run_id: str | None = None,
         resume: bool | str = False,
+        tags: list[str] | None = None,
+        group: str | None = None,
     ):
         self.id = run_id or new_run_id()
         self.project = project
         self.name = name or _generate_name()
         self.config = _coerce_config(config)
         self.description = description or ""
+        self.tags = list(tags) if tags else []
+        self.group = group or None
         self._backend = backend
         self._buffer: list[tuple[str, int, float, float]] = []
         self._buf_lock = threading.Lock()
@@ -325,7 +336,10 @@ class Run:
             )
         if mode == "must" and not existed:
             raise ValueError(f"resume='must' but run {self.id!r} was not found")
-        backend.create_run(self.id, project, self.name, self.config, description=self.description)
+        backend.create_run(
+            self.id, project, self.name, self.config,
+            description=self.description, tags=self.tags, group=self.group,
+        )
         if existed and mode:
             self._step = int(backend.resume_run(self.id)) + 1
         self._stop = threading.Event()

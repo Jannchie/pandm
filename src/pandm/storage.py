@@ -43,7 +43,12 @@ CREATE TABLE IF NOT EXISTS runs (
     -- training progress for ETA: current step out of total (either may be NULL)
     progress       REAL,
     progress_total REAL,
-    progress_ts    REAL
+    progress_ts    REAL,
+    -- free-form organization (run.init(tags=..., group=...)): tags is a JSON array
+    -- of labels for filtering; group_name buckets related runs (a sweep, a
+    -- multi-process job). `group` is a SQL keyword, hence the column name.
+    tags           TEXT NOT NULL DEFAULT '[]',
+    group_name     TEXT
 );
 CREATE TABLE IF NOT EXISTS metrics (
     run_id TEXT NOT NULL,
@@ -128,6 +133,21 @@ def new_run_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
+def _norm_tags(tags: list[str] | None) -> list[str]:
+    """Normalize free-form tags: non-empty strings, trimmed, de-duped, and bounded
+    (<=32 tags, <=64 chars each) so a stray object can't bloat the run row."""
+    if not tags:
+        return []
+    out: list[str] = []
+    for t in tags:
+        s = str(t).strip()[:64]
+        if s and s not in out:
+            out.append(s)
+        if len(out) >= 32:
+            break
+    return out
+
+
 def _slug(text: str) -> str:
     return _SLUG_RE.sub("-", text).strip("-") or "x"
 
@@ -138,6 +158,8 @@ def _run_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "project": row["project"],
         "name": row["name"],
         "description": row["description"],
+        "tags": json.loads(row["tags"]),
+        "group": row["group_name"],
         "status": row["status"],
         "config": json.loads(row["config"]),
         "summary": json.loads(row["summary"]),
@@ -184,6 +206,10 @@ class LocalStore:
             self._db.execute("ALTER TABLE runs ADD COLUMN metric_meta TEXT NOT NULL DEFAULT '{}'")
         if "description" not in cols:
             self._db.execute("ALTER TABLE runs ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+        if "tags" not in cols:
+            self._db.execute("ALTER TABLE runs ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
+        if "group_name" not in cols:
+            self._db.execute("ALTER TABLE runs ADD COLUMN group_name TEXT")
         self._db.execute("CREATE INDEX IF NOT EXISTS idx_runs_user ON runs (user_id)")
         # histogram sync cursors — the histograms table itself is (re)created by the
         # schema script above; only the older sync tables need the new columns.
@@ -209,13 +235,17 @@ class LocalStore:
         created_at: float | None = None,
         user_id: int | None = None,
         description: str | None = None,
+        tags: list[str] | None = None,
+        group: str | None = None,
     ) -> None:
         now = created_at if created_at is not None else time.time()
         with self._lock:
             self._db.execute(
-                "INSERT OR IGNORE INTO runs (id, project, name, description, status, config, created_at, updated_at, user_id)"
-                " VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?)",
-                (run_id, project, name, description or "", json.dumps(config, default=str), now, now, user_id),
+                "INSERT OR IGNORE INTO runs"
+                " (id, project, name, description, status, config, created_at, updated_at, user_id, tags, group_name)"
+                " VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?)",
+                (run_id, project, name, description or "", json.dumps(config, default=str), now, now, user_id,
+                 json.dumps(_norm_tags(tags)), group or None),
             )
             self._db.commit()
 

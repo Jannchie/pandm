@@ -43,7 +43,7 @@ with pandm.init(project="mnist", config={"lr": 1e-3}) as run:
 
 | Call | Purpose |
 |---|---|
-| `pandm.init(project="default", name=None, config=None, *, description=None, total_steps=None, directory=None, remote=None, api_key=None)` | Start a run; returns a `Run` (also a context manager). `description` = a one-line subtitle. |
+| `pandm.init(project="default", name=None, config=None, *, description=None, total_steps=None, tags=None, group=None, directory=None, remote=None, api_key=None)` | Start a run; returns a `Run` (also a context manager). `description` = a one-line subtitle; `tags=[...]` = filterable labels; `group=` buckets related runs (a sweep, a multi-process job). |
 | `run.log(metrics: dict, step=None)` | Log scalar metrics. `step` defaults to an internal per-run counter. |
 | `run.log_image(key, image, step=None, caption=None)` | Log one image. `step` defaults to the latest metric step. |
 | `run.log_histogram(key, samples, *, step=None, bins=30, description=None)` | Log a distribution snapshot — drawn over time as a density heatmap. Needs numpy. See *Shaping how a metric renders*. |

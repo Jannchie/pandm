@@ -9,6 +9,8 @@ export interface Run {
   project: string
   name: string
   description: string // one-line human note (init(description=...))
+  tags: string[] // free-form labels for filtering (init(tags=...))
+  group: string | null // buckets related runs (init(group=...))
   status: 'running' | 'finished' | 'crashed'
   config: Record<string, unknown>
   created_at: number

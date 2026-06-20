@@ -200,6 +200,8 @@ app.post('/api/runs', async (c) => {
     project?: string
     name?: string
     description?: string
+    tags?: string[]
+    group?: string
     config?: unknown
     created_at?: number
   }>()
@@ -210,6 +212,7 @@ app.post('/api/runs', async (c) => {
   await db.createRun(
     c.env.DB, runId, body.project ?? 'default', body.name ?? 'unnamed',
     body.config ?? {}, body.created_at ?? null, c.get('user').id, body.description ?? '',
+    body.tags ?? [], body.group ?? null,
   )
   return c.json({ id: runId })
 })

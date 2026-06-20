@@ -61,6 +61,25 @@ def test_sdk_local_roundtrip(data_dir):
     assert store.media_path(run.id, media[0]["filename"]) is not None
 
 
+def test_sdk_tags_and_group_roundtrip(data_dir):
+    run = pandm.init(
+        project="proj", name="tagged", directory=data_dir,
+        tags=["baseline", "lr-sweep", "baseline", " trim ", ""], group="exp-42",
+    )
+    run.finish()
+
+    store = LocalStore(data_dir)
+    got = _get_run(store, run.id)
+    assert got["group"] == "exp-42"
+    assert got["tags"] == ["baseline", "lr-sweep", "trim"]  # de-duped, trimmed, empties dropped
+
+    # a run with neither stays empty, not null
+    plain = pandm.init(project="proj", name="plain", directory=data_dir)
+    plain.finish()
+    assert _get_run(store, plain.id)["tags"] == []
+    assert _get_run(store, plain.id)["group"] is None
+
+
 def test_sdk_auto_step_and_context_manager(data_dir):
     with pandm.init(project="proj", directory=data_dir) as run:
         run.log({"loss": 3.0})
