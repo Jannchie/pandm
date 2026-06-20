@@ -2,12 +2,12 @@
 import type { Run, Series } from '../api'
 import type { ChartDesc, ChartSeriesDesc } from '../store'
 import { BarChart, CustomChart, LineChart } from 'echarts/charts'
-import { GridComponent, LegendComponent, MarkLineComponent, TooltipComponent } from 'echarts/components'
+import { DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, ToolboxComponent, TooltipComponent } from 'echarts/components'
 import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { runColor, seriesColor } from '../colors'
-import { CHART_FONT, CHART_INK, ema, fmtClock, fmtMetric, fmtNum, fmtStep } from '../fmt'
+import { CHART_FONT, CHART_INK, ema, fmtClock, fmtDuration, fmtMetric, fmtNum, fmtStep } from '../fmt'
 import { getSeries, metricSpec, selectedRuns, state } from '../store'
 
 echarts.use([
@@ -18,6 +18,8 @@ echarts.use([
   LegendComponent,
   MarkLineComponent,
   TooltipComponent,
+  ToolboxComponent,
+  DataZoomComponent,
   CanvasRenderer,
 ])
 
@@ -35,6 +37,7 @@ const sig = computed(() =>
     props.desc.id,
     props.desc.series.map((s) => s.key).join(','),
     state.xAxis,
+    state.xRange ? state.xRange.join(',') : '',
     state.logScale,
     state.smoothing,
   ].join('~'),
@@ -44,8 +47,22 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+// setOption with notMerge wipes user interaction state; carry the legend's
+// show/hide selection across live-data redraws. echarts matches by series name,
+// so series added/removed by a poll are handled gracefully.
+function applyOption(option: echarts.EChartsCoreOption) {
+  if (!chart) return
+  const prev = (chart.getOption()?.legend as { selected?: Record<string, boolean> }[] | undefined)?.[0]?.selected
+  chart.setOption(option, { notMerge: true })
+  if (prev) chart.setOption({ legend: { selected: prev } })
+}
+
 const zip = (xs: number[], ys: number[]) => xs.map((x, i) => [x, ys[i]] as [number, number])
-const xOf = (d: Series) => (state.xAxis === 'step' ? d.steps : d.ts.map((t) => t * 1000))
+// step -> raw step; time -> absolute ms (echarts time axis); rtime -> seconds
+// elapsed since this run started, so runs launched at different wall-clock times
+// line up on a common relative axis.
+const xOf = (d: Series, run: Run) =>
+  state.xAxis === 'step' ? d.steps : state.xAxis === 'rtime' ? d.ts.map((t) => t - run.created_at) : d.ts.map((t) => t * 1000)
 
 interface Cell {
   run: Run
@@ -88,7 +105,7 @@ function renderBar() {
         },
       ]
 
-  chart.setOption(
+  applyOption(
     {
       animationDuration: 200,
       animationDurationUpdate: 250,
@@ -135,7 +152,6 @@ function renderBar() {
       },
       series,
     },
-    { notMerge: true },
   )
 }
 
@@ -174,6 +190,7 @@ async function update() {
   // costly setOption when nothing actually changed.
   const renderKey = JSON.stringify([
     state.xAxis,
+    state.xRange,
     state.logScale,
     state.smoothing,
     fetched.map(({ c, mean, lo, hi }) => [
@@ -226,7 +243,7 @@ async function update() {
     // value/time axes, where line stacking misplaces the fill. lo/hi are co-logged
     // with the mean, so they're index-aligned; if they desync we skip the band.
     if (lo && hi && lo.values.length > 0 && lo.values.length === hi.values.length) {
-      const bx = xOf(lo)
+      const bx = xOf(lo, c.run)
       const pts: [number, number, number][] = bx.map((x, j) => [x, lo.values[j], hi.values[j]])
       series.push({
         name: `__band__${name}`,
@@ -247,7 +264,7 @@ async function update() {
       })
     }
 
-    let xs = xOf(mean)
+    let xs = xOf(mean, c.run)
     let ys = mean.values
     if (state.logScale) {
       const keep = ys.map((v) => v > 0)
@@ -286,7 +303,7 @@ async function update() {
     })
   }
 
-  chart.setOption(
+  applyOption(
     {
       animationDuration: 200,
       animationDurationUpdate: 250,
@@ -307,6 +324,22 @@ async function update() {
           }
         : { show: false },
       grid: { left: 6, right: 14, top: bySeries ? 28 : 12, bottom: 2, containLabel: true },
+      // drag-select to zoom x: a hidden toolbox dataZoom feed; its `datazoom` event
+      // lifts the picked range into state.xRange (below), which every chart renders
+      // via xAxis.min/max — so one drag zooms them all. filterMode 'none' clips the
+      // axis without dropping points, keeping bands/ghosts aligned.
+      toolbox: { show: false, feature: { dataZoom: { show: true, yAxisIndex: 'none', filterMode: 'none' } } },
+      dataZoom: [
+        {
+          type: 'inside',
+          xAxisIndex: 0,
+          filterMode: 'none',
+          zoomOnMouseWheel: false, // inside is only the zoom *target*; drag-select drives it
+          moveOnMouseMove: false,
+          moveOnMouseWheel: false,
+          ...(state.xRange ? { startValue: state.xRange[0], endValue: state.xRange[1] } : { start: 0, end: 100 }),
+        },
+      ],
       xAxis: {
         type: state.xAxis === 'time' ? 'time' : 'value',
         min: 'dataMin',
@@ -316,7 +349,12 @@ async function update() {
         axisLabel: {
           color: CHART_INK.dim,
           fontSize: 12,
-          formatter: state.xAxis === 'step' ? (v: number) => fmtNum(v) : undefined,
+          formatter:
+            state.xAxis === 'step'
+              ? (v: number) => fmtNum(v)
+              : state.xAxis === 'rtime'
+                ? (v: number) => fmtDuration(v)
+                : undefined,
         },
         splitLine: { show: false },
       },
@@ -343,7 +381,8 @@ async function update() {
           )
           if (!rows.length) return ''
           const x = rows[0].value[0]
-          const head = state.xAxis === 'step' ? `step ${fmtStep(x)}` : fmtClock(x / 1000)
+          const head =
+            state.xAxis === 'step' ? `step ${fmtStep(x)}` : state.xAxis === 'rtime' ? `+${fmtDuration(x)}` : fmtClock(x / 1000)
           const body = rows
             .slice()
             .sort((a, b) => b.value[1] - a.value[1])
@@ -360,14 +399,30 @@ async function update() {
       },
       series,
     },
-    { notMerge: true },
   )
+  // re-arm drag-to-zoom: a notMerge redraw drops the active selection cursor
+  chart.dispatchAction({ type: 'takeGlobalCursor', key: 'dataZoomSelect', dataZoomSelectActive: true })
 }
 
 onMounted(() => {
   chart = echarts.init(el.value!)
   resizeObs = new ResizeObserver(() => chart?.resize())
   resizeObs.observe(el.value!)
+  // drag-select a span -> lift it into the shared state.xRange so every chart zooms.
+  // toolbox area-select reports absolute values in event.batch; fall back to the
+  // dataZoom component's startValue/endValue if a build delivers them only there.
+  chart.on('datazoom', (params: unknown) => {
+    const batch = (params as { batch?: { startValue?: number, endValue?: number }[] }).batch?.[0]
+    const dz = (chart?.getOption().dataZoom as { startValue?: number, endValue?: number }[] | undefined)?.[0]
+    const sv = batch?.startValue ?? dz?.startValue
+    const ev = batch?.endValue ?? dz?.endValue
+    if (sv == null || ev == null || sv === ev) return
+    const next: [number, number] = sv < ev ? [sv, ev] : [ev, sv]
+    if (!state.xRange || state.xRange[0] !== next[0] || state.xRange[1] !== next[1]) state.xRange = next
+  })
+  chart.getZr().on('dblclick', () => {
+    state.xRange = null // double-click anywhere clears the shared zoom
+  })
   update()
 })
 

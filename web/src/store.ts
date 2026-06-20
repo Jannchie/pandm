@@ -1,4 +1,4 @@
-import { computed, reactive, watchEffect } from 'vue'
+import { computed, reactive, watch, watchEffect } from 'vue'
 import * as api from './api'
 import { clearEta } from './eta'
 
@@ -22,10 +22,17 @@ export const state = reactive({
   tab: 'metrics' as 'metrics' | 'media' | 'table',
   columns: 0, // grid columns for metrics/media, 0 = auto
   smoothing: 0,
-  xAxis: 'step' as 'step' | 'time',
+  xAxis: 'step' as 'step' | 'time' | 'rtime', // rtime = elapsed since each run's start
+  xRange: null as [number, number] | null, // shared x zoom (units follow xAxis); null = full range
   logScale: false,
   expandedChart: null as string | null,
   lightbox: null as null | { url: string; title: string; sub: string },
+})
+
+// the shared zoom's units differ per x-axis mode (step vs ms vs elapsed seconds),
+// so switching mode invalidates any active zoom
+watch(() => state.xAxis, () => {
+  state.xRange = null
 })
 
 export const visibleRuns = computed(() => {

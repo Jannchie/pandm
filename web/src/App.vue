@@ -74,17 +74,26 @@ onMounted(() => bootstrap())
               </div>
               <div class="flex items-center bg-elev rounded-lg p-0.5 mr-2 shrink-0">
                 <button
-                  v-for="x in ['step', 'time'] as const"
+                  v-for="x in ['step', 'time', 'rtime'] as const"
                   :key="x"
                   class="px-2 py-0.5 rounded-md text-[13px] transition-colors capitalize"
                   :class="state.xAxis === x ? 'bg-panel text-fg shadow-sm' : 'text-fg-dim hover:text-fg-mut'"
+                  :title="x === 'rtime' ? 'elapsed since each run started' : `x-axis: ${x}`"
                   @click="state.xAxis = x"
                 >
-                  {{ x }}
+                  {{ x === 'rtime' ? 'elapsed' : x }}
                 </button>
               </div>
               <button class="btn font-mono text-[13px] shrink-0" :class="{ 'btn-on !text-accent-hi': state.logScale }" @click="state.logScale = !state.logScale">
                 log
+              </button>
+              <button
+                v-if="state.xRange"
+                class="btn font-mono text-[13px] shrink-0 !text-accent-hi"
+                title="reset x zoom (or double-click any chart)"
+                @click="state.xRange = null"
+              >
+                ⤢ reset
               </button>
             </template>
           </div>
