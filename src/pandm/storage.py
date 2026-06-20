@@ -123,7 +123,9 @@ def resolve_dir(directory: str | os.PathLike | None = None) -> Path:
 
 
 def new_run_id() -> str:
-    return uuid.uuid4().hex[:8]
+    # 12 hex chars = 48 bits: birthday-collision ~16M runs, vs ~77k at 8 chars.
+    # Still short enough for `pandm show <id>` / URLs. Old 8-char ids stay valid.
+    return uuid.uuid4().hex[:12]
 
 
 def _slug(text: str) -> str:
@@ -227,7 +229,7 @@ class LocalStore:
                 [(run_id, k, s, v, t) for k, s, v, t in rows],
             )
             self._db.execute(
-                "UPDATE runs SET updated_at = ? WHERE id = ?",
+                "UPDATE runs SET updated_at = MAX(updated_at, ?) WHERE id = ?",
                 (max(t for *_, t in rows), run_id),
             )
             self._db.commit()
@@ -252,7 +254,7 @@ class LocalStore:
                 "INSERT INTO media (run_id, key, step, filename, caption, ts) VALUES (?, ?, ?, ?, ?, ?)",
                 (run_id, key, step, filename, caption, ts),
             )
-            self._db.execute("UPDATE runs SET updated_at = ? WHERE id = ?", (ts, run_id))
+            self._db.execute("UPDATE runs SET updated_at = MAX(updated_at, ?) WHERE id = ?", (ts, run_id))
             self._db.commit()
         return filename
 
@@ -273,7 +275,7 @@ class LocalStore:
                 "INSERT INTO histograms (run_id, key, step, bins, counts, ts) VALUES (?, ?, ?, ?, ?, ?)",
                 (run_id, key, int(step), json.dumps(list(bins)), json.dumps(list(counts)), ts),
             )
-            self._db.execute("UPDATE runs SET updated_at = ? WHERE id = ?", (ts, run_id))
+            self._db.execute("UPDATE runs SET updated_at = MAX(updated_at, ?) WHERE id = ?", (ts, run_id))
             self._db.commit()
 
     def heartbeat(self, run_id: str, ts: float | None = None) -> None:
@@ -606,7 +608,7 @@ class LocalStore:
 
     def media_path(self, run_id: str, filename: str) -> Path | None:
         path = (self.media_root / run_id / filename).resolve()
-        if not str(path).startswith(str(self.media_root.resolve())):
+        if not path.is_relative_to(self.media_root.resolve()):
             return None  # path traversal guard
         return path if path.is_file() else None
 
