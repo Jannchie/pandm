@@ -76,7 +76,9 @@ export function runToDict(
   }
 }
 
-export const newRunId = () => crypto.randomUUID().replace(/-/g, '').slice(0, 8)
+// 12 hex chars = 48 bits: birthday-collision ~16M runs, vs ~77k at 8 chars.
+// Server fallback only — the SDK supplies its own id. Old 8-char ids stay valid.
+export const newRunId = () => crypto.randomUUID().replace(/-/g, '').slice(0, 12)
 
 const slug = (text: string) => text.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'x'
 

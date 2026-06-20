@@ -62,6 +62,16 @@ function blankState(): RunState {
 
 /** Keep index positions that survive stride sampling to `target` points; the very
  * last point is always kept. Mirrors db.ts's `(rn-1) % stride == 0 OR rn == total`. */
+/** Decode one segment blob, returning null on corruption so a single bad row can't
+ * blank an entire series read. */
+function parseSeg<T>(blob: string): T | null {
+  try {
+    return JSON.parse(blob) as T
+  } catch {
+    return null
+  }
+}
+
 function sampleIndices(total: number, target: number): number[] {
   const stride = Math.max(1, Math.floor((total + target - 1) / target))
   const keep: number[] = []
@@ -117,6 +127,17 @@ export class RunStore extends DurableObject<Env> {
       .run()
   }
 
+  /** Liveness-only D1 write for heartbeat/progress, which carry no new summary/stats.
+   * Skips re-serializing the (potentially hundreds-of-keys) summary/stats blobs every
+   * few seconds — those only change on ingest, where syncRun() still writes them. */
+  private async syncLiveness() {
+    await this.env.DB.prepare(
+      `UPDATE runs SET updated_at = ?1, progress = ?2, progress_total = ?3, progress_ts = ?4 WHERE id = ?5`,
+    )
+      .bind(this.state.updatedAt, this.state.progress, this.state.progressTotal, this.state.progressTs, this.state.runId)
+      .run()
+  }
+
   /** stats minus the DO-internal lastStep field — the shape db.runToDict expects. */
   private statsForRun(): Record<string, MetricStats> {
     const out: Record<string, MetricStats> = {}
@@ -141,6 +162,18 @@ export class RunStore extends DurableObject<Env> {
     const byKey = new Map<string, MetricIn[]>()
     for (const r of fresh) {
       ;(byKey.get(r.key) ?? byKey.set(r.key, []).get(r.key)!).push(r)
+      if (!Number.isFinite(r.value)) {
+        // NaN/Inf (e.g. a diverged loss) round-trips through JSON.stringify as
+        // `null`; keep the point as a chart gap but never let it poison the
+        // materialized min/max/last/summary. A key whose values are *only* ever
+        // non-finite simply doesn't appear in stats until a finite value lands.
+        const existing = this.state.stats[r.key]
+        if (existing) {
+          existing.count += 1
+          existing.lastStep = Math.max(existing.lastStep, r.step)
+        }
+        continue
+      }
       const s = (this.state.stats[r.key] ??= { min: r.value, max: r.value, count: 0, last: r.value, lastStep: r.step })
       s.min = Math.min(s.min, r.value)
       s.max = Math.max(s.max, r.value)
@@ -159,7 +192,8 @@ export class RunStore extends DurableObject<Env> {
         Math.min(...steps),
         Math.max(...steps),
         pts.length,
-        JSON.stringify({ steps, values: pts.map((p) => p.value), ts: pts.map((p) => p.ts) }),
+        // coerce non-finite to null explicitly rather than relying on JSON's silent NaN->null
+        JSON.stringify({ steps, values: pts.map((p) => (Number.isFinite(p.value) ? p.value : null)), ts: pts.map((p) => p.ts) }),
       )
       maxTs = Math.max(maxTs, ...pts.map((p) => p.ts))
     }
@@ -210,7 +244,7 @@ export class RunStore extends DurableObject<Env> {
     if (this.state.status !== 'running') return // server clock; matches D1 WHERE status='running'
     this.touch(ts)
     this.persistState()
-    await this.syncRun()
+    await this.syncLiveness()
   }
 
   async progress(runId: string, current: number, total: number | null, ts: number): Promise<void> {
@@ -221,7 +255,7 @@ export class RunStore extends DurableObject<Env> {
     this.state.progressTs = ts
     this.touch(ts)
     this.persistState()
-    await this.syncRun()
+    await this.syncLiveness()
   }
 
   async finish(
@@ -265,22 +299,24 @@ export class RunStore extends DurableObject<Env> {
       .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
   }
 
-  /** Decode a key's segments in step order into flat columnar arrays. */
-  private metricPoints(key: string, afterStep: number | null) {
-    const cond = afterStep !== null ? 'AND end_step > ?2' : ''
+  /** Incremental tail (live charts): decode only segments past `afterStep`. The
+   * gap between polls is small, so this stays bounded without sampling. */
+  private metricTail(key: string, afterStep: number) {
     const rows = this.sql
-      .exec<{ blob: string }>(
-        `SELECT blob FROM segments WHERE kind = 'm' AND key = ?1 ${cond} ORDER BY start_step, id`,
-        ...(afterStep !== null ? [key, afterStep] : [key]),
+      .exec<{ count: number; blob: string }>(
+        "SELECT count, blob FROM segments WHERE kind = 'm' AND key = ?1 AND end_step > ?2 ORDER BY start_step, id",
+        key,
+        afterStep,
       )
       .toArray()
     const steps: number[] = []
-    const values: number[] = []
+    const values: Array<number | null> = []
     const ts: number[] = []
     for (const r of rows) {
-      const seg = JSON.parse(r.blob) as { steps: number[]; values: number[]; ts: number[] }
+      const seg = parseSeg<{ steps: number[]; values: Array<number | null>; ts: number[] }>(r.blob)
+      if (!seg) continue // corrupt segment: skip it rather than blank the whole series
       for (let i = 0; i < seg.steps.length; i++) {
-        if (afterStep !== null && seg.steps[i] <= afterStep) continue
+        if (seg.steps[i] <= afterStep) continue
         steps.push(seg.steps[i])
         values.push(seg.values[i])
         ts.push(seg.ts[i])
@@ -290,11 +326,39 @@ export class RunStore extends DurableObject<Env> {
   }
 
   metricSeries(key: string, maxPoints: number, afterStep: number | null) {
-    const all = this.metricPoints(key, afterStep)
-    // incremental tail (live charts): no sampling — the gap between polls is small
-    if (afterStep !== null) return all
-    const idx = sampleIndices(all.steps.length, Math.max(1, maxPoints))
-    return { steps: idx.map((i) => all.steps[i]), values: idx.map((i) => all.values[i]), ts: idx.map((i) => all.ts[i]) }
+    if (afterStep !== null) return this.metricTail(key, afterStep)
+    // Full series: stride-sample while streaming so we never materialize all N
+    // points — output is bounded to ~maxPoints regardless of run length. Total
+    // comes from the `count` column (no decode); a corrupt segment is skipped but
+    // still advances the global index by its `count` so sampling stays aligned.
+    const total =
+      this.sql.exec<{ n: number }>("SELECT COALESCE(SUM(count), 0) AS n FROM segments WHERE kind = 'm' AND key = ?1", key).toArray()[0]
+        ?.n ?? 0
+    if (total === 0) return { steps: [] as number[], values: [] as Array<number | null>, ts: [] as number[] }
+    const keep = new Set(sampleIndices(total, Math.max(1, maxPoints)))
+    const rows = this.sql
+      .exec<{ count: number; blob: string }>("SELECT count, blob FROM segments WHERE kind = 'm' AND key = ?1 ORDER BY start_step, id", key)
+      .toArray()
+    const steps: number[] = []
+    const values: Array<number | null> = []
+    const ts: number[] = []
+    let gi = 0
+    for (const r of rows) {
+      const seg = parseSeg<{ steps: number[]; values: Array<number | null>; ts: number[] }>(r.blob)
+      if (!seg) {
+        gi += r.count
+        continue
+      }
+      for (let i = 0; i < seg.steps.length; i++) {
+        if (keep.has(gi)) {
+          steps.push(seg.steps[i])
+          values.push(seg.values[i])
+          ts.push(seg.ts[i])
+        }
+        gi++
+      }
+    }
+    return { steps, values, ts }
   }
 
   histogramKeys(): Array<{ key: string; points: number; last_step: number }> {
@@ -312,7 +376,8 @@ export class RunStore extends DurableObject<Env> {
     const counts: number[][] = []
     const ts: number[] = []
     for (const r of rows) {
-      const seg = JSON.parse(r.blob) as { steps: number[]; bins: number[][]; counts: number[][]; ts: number[] }
+      const seg = parseSeg<{ steps: number[]; bins: number[][]; counts: number[][]; ts: number[] }>(r.blob)
+      if (!seg) continue // corrupt segment: skip rather than blank the series
       for (let i = 0; i < seg.steps.length; i++) {
         steps.push(seg.steps[i])
         bins.push(seg.bins[i])

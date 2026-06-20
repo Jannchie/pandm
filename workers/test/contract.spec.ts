@@ -113,6 +113,24 @@ describe('metrics ingest & watermark', () => {
     expect(run.summary.acc).toBe(0.9)
   })
 
+  it('treats non-finite metric values as chart gaps without poisoning stats', async () => {
+    await post('/api/runs', { id: 'nan00001', project: 'p', name: 'nan' }, keyOf(alice))
+    // NaN/Infinity serialize to null over JSON — the realistic on-wire form of a diverged loss
+    await post(
+      '/api/runs/nan00001/metrics',
+      { rows: [{ key: 'loss', step: 0, value: 1, ts: 1 }, { key: 'loss', step: 1, value: NaN, ts: 2 }, { key: 'loss', step: 2, value: 3, ts: 3 }] },
+      keyOf(alice),
+    )
+    const series = (await (await api('/api/runs/nan00001/metrics/loss', { headers: keyOf(alice) })).json()) as any
+    expect(series.steps).toEqual([0, 1, 2])
+    expect(series.values[1]).toBeNull() // the non-finite point survives as a gap
+    const run = (await (await api('/api/runs/nan00001', { headers: keyOf(alice) })).json()) as any
+    expect(run.stats.loss.min).toBe(1) // min/max/summary ignore the non-finite point
+    expect(run.stats.loss.max).toBe(3)
+    expect(run.summary.loss).toBe(3)
+    expect(run.stats.loss.count).toBe(3) // but it's still a logged point
+  })
+
   it('exposes per-key stats on runs (dashboard lists metrics from run.stats)', async () => {
     await post('/api/runs', { id: 'stat0001', project: 'p', name: 'st' }, keyOf(alice))
     await post(
