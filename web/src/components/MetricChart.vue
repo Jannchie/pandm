@@ -27,6 +27,7 @@ const el = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
 let resizeObs: ResizeObserver | null = null
 let token = 0
+let lastRenderKey = '' // skip the (expensive) setOption when a poll brought no new data for this chart
 
 const sig = computed(() =>
   [
@@ -166,6 +167,26 @@ async function update() {
     }),
   )
   if (my !== token || !chart) return
+
+  // `sig` flips every poll because a running run's updated_at bumps each tick, so
+  // update() re-runs — but the tail fetch often adds nothing for *this* chart's
+  // keys. Fingerprint the data + render-affecting settings and bail before the
+  // costly setOption when nothing actually changed.
+  const renderKey = JSON.stringify([
+    state.xAxis,
+    state.logScale,
+    state.smoothing,
+    fetched.map(({ c, mean, lo, hi }) => [
+      c.run.id,
+      c.s.key,
+      mean?.steps.length ?? 0,
+      mean?.steps[mean.steps.length - 1] ?? -1,
+      lo?.steps.length ?? 0,
+      hi?.steps.length ?? 0,
+    ]),
+  ])
+  if (renderKey === lastRenderKey) return
+  lastRenderKey = renderKey
 
   // a fixed axis only makes sense on a linear scale; log mode keeps its auto range
   const fixed = spec && !state.logScale

@@ -132,17 +132,26 @@ export async function removeProject(project: string) {
   await refresh()
 }
 
+let refreshEpoch = 0
+
 export async function refresh() {
+  // Concurrent refreshes (poll tick + setProject + visibility flip) can be in
+  // flight at once; tag each one and let only the newest commit, so a slow
+  // response for the old project can't clobber the new project's runs.
+  const myEpoch = ++refreshEpoch
   try {
     const [projects, runs] = await Promise.all([api.fetchProjects(), api.fetchRuns(state.project || undefined)])
-    state.projects = projects
     // there is no all-projects view — fall back to the most recently active project
+    let nextProject = state.project
+    let nextRuns = runs
     if (!projects.some((p) => p.project === state.project)) {
-      state.project = projects[0]?.project ?? ''
-      state.runs = state.project ? await api.fetchRuns(state.project) : runs
-    } else {
-      state.runs = runs
+      nextProject = projects[0]?.project ?? ''
+      nextRuns = nextProject ? await api.fetchRuns(nextProject) : runs
     }
+    if (myEpoch !== refreshEpoch) return // superseded by a newer refresh — drop stale data
+    state.projects = projects
+    state.project = nextProject
+    state.runs = nextRuns
     state.offline = false
     if (!state.ready) {
       // honour the restored (localStorage / URL) selection, dropping ids that no
@@ -182,6 +191,7 @@ function resumePolling() {
 
 function schedule() {
   if (!polling || !state.live) return
+  if (document.hidden) return // backgrounded tab: stop polling; visibilitychange resumes it
   clearTimeout(timer)
   const delay = state.runs.some((r) => r.status === 'running') ? pollMs : IDLE_POLL_MS
   timer = setTimeout(() => refresh().then(schedule), delay)
@@ -330,11 +340,16 @@ export function getSeries(run: api.Run, key: string): Promise<api.Series> {
     // missed until the next full fetch — acceptable for a live view.
     const prev = hit ? await hit.promise.catch(() => null) : null
     if (prev && prev.steps.length > 0 && prev.steps.length < MAX_CLIENT_POINTS) {
-      const tail = await api.fetchSeries(run.id, key, prev.steps[prev.steps.length - 1])
+      const lastStep = prev.steps[prev.steps.length - 1]
+      const tail = await api.fetchSeries(run.id, key, lastStep)
+      // keep the append idempotent: drop any tail point at/below the last step we
+      // already hold, so a boundary/non-monotonic overlap can't duplicate points
+      let start = 0
+      while (start < tail.steps.length && tail.steps[start] <= lastStep) start++
       return {
-        steps: [...prev.steps, ...tail.steps],
-        values: [...prev.values, ...tail.values],
-        ts: [...prev.ts, ...tail.ts],
+        steps: [...prev.steps, ...tail.steps.slice(start)],
+        values: [...prev.values, ...tail.values.slice(start)],
+        ts: [...prev.ts, ...tail.ts.slice(start)],
       }
     }
     return api.fetchSeries(run.id, key)
