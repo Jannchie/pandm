@@ -184,7 +184,7 @@ watchEffect(() => {
         {{ grp.name }}
       </h3>
       <div class="grid gap-3 mobile-1col" :style="gridStyle">
-        <div v-for="c in grp.items" :key="c.id" class="card group p-3 pb-1 min-w-0">
+        <div v-for="c in grp.items" :key="c.id" class="card group p-3 pb-1 min-w-0 flex flex-col">
           <div class="flex items-center mb-1">
             <span class="text-[14px] text-fg font-medium truncate font-mono">{{ c.title }}</span>
             <span
@@ -220,8 +220,12 @@ watchEffect(() => {
           <p v-if="descs[c.id]" class="text-[12.5px] text-fg-dim leading-snug mb-1 -mt-0.5 line-clamp-2">
             {{ descs[c.id] }}
           </p>
-          <!-- aspect-ratio (not fixed height) so charts scale with the column width -->
-          <div class="aspect-video">
+          <!-- aspect-ratio (not fixed height) so charts scale with the column width.
+               mt-auto pins the chart to the card's bottom: grid stretches same-row
+               cards to equal height, so a card without a subtitle keeps its chart
+               bottom-aligned (and thus top-aligned too — charts are equal size) with
+               its neighbours that do have one. -->
+          <div class="aspect-video shrink-0 mt-auto">
             <HistogramChart v-if="c.kind === 'histogram'" :run="c.run!" :metric-key="c.series[0].key" />
             <MetricChart v-else :desc="c" />
           </div>
