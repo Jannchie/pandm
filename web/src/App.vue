@@ -54,10 +54,11 @@ onMounted(() => bootstrap())
 
           <!-- controls: own row on mobile, right-aligned on desktop -->
           <div
-            class="items-center px-2 h-9 md:flex md:flex-1 md:min-w-0 overflow-x-auto"
+            class="items-center px-2 min-h-9 md:h-9 flex-wrap gap-y-1 md:flex-nowrap md:flex md:flex-1 md:min-w-0 md:overflow-x-auto"
             :class="state.tab === 'metrics' ? 'flex' : 'hidden'"
           >
-            <div class="flex-1 min-w-2" />
+            <!-- pushes controls right on desktop; on mobile they left-align and wrap -->
+            <div class="hidden md:block flex-1 min-w-2" />
 
             <div
               v-if="state.tab !== 'table'"

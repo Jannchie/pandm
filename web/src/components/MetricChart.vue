@@ -41,6 +41,24 @@ echarts.use([
 
 const props = defineProps<{ desc: ChartDesc }>()
 
+// Axis title (define_metric x_label/y_label): a centred name along the axis.
+// ECharts' containLabel does NOT reserve room for the name, so callers also pad
+// the grid (left for y, bottom for x) by `axisNameGap` when a label is set.
+const axisNameGap = 22
+function axisName(label: string | undefined, axis: 'x' | 'y') {
+  if (!label) return {}
+  return {
+    name: label,
+    nameLocation: 'middle' as const,
+    nameGap: axis === 'y' ? 40 : 26,
+    nameTextStyle: {
+      color: CHART_INK.mut,
+      fontSize: 12,
+      fontFamily: CHART_FONT,
+    },
+  }
+}
+
 const el = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
 let resizeObs: ResizeObserver | null = null
@@ -153,15 +171,18 @@ function renderBar() {
         }
       : { show: false },
     grid: {
-      left: 6,
+      left: spec?.y_label ? 6 + axisNameGap : 6,
       right: 14,
       top: grouped ? 28 : 12,
-      bottom: 2,
+      bottom: spec?.x_label ? 2 + axisNameGap : 2,
       containLabel: true,
     },
     xAxis: {
+      ...axisName(spec?.x_label, 'x'),
       type: 'category',
-      data: categories,
+      data: spec?.x_ticks
+        ? categories.map((c, i) => spec.x_ticks?.[i] ?? c)
+        : categories,
       axisLine: { lineStyle: { color: 'rgba(255,255,255,0.12)' } },
       axisTick: { show: false },
       axisLabel: {
@@ -172,6 +193,7 @@ function renderBar() {
       },
     },
     yAxis: {
+      ...axisName(spec?.y_label, 'y'),
       type: 'value',
       scale: !spec,
       min: spec?.min,
@@ -401,10 +423,10 @@ async function update() {
         }
       : { show: false },
     grid: {
-      left: 6,
+      left: spec?.y_label ? 6 + axisNameGap : 6,
       right: 14,
       top: bySeries ? 28 : 12,
-      bottom: 2,
+      bottom: spec?.x_label ? 2 + axisNameGap : 2,
       containLabel: true,
     },
     // drag-select to zoom x: a hidden toolbox dataZoom feed; its `datazoom` event
@@ -431,6 +453,7 @@ async function update() {
       },
     ],
     xAxis: {
+      ...axisName(spec?.x_label, 'x'),
       type: state.xAxis === 'time' ? 'time' : 'value',
       min: 'dataMin',
       max: 'dataMax',
@@ -449,6 +472,7 @@ async function update() {
       splitLine: { show: false },
     },
     yAxis: {
+      ...axisName(spec?.y_label, 'y'),
       type: state.logScale ? 'log' : 'value',
       scale: !fixed, // a declared range pins the axis; otherwise fit the data
       min: fixed && spec.min !== undefined ? spec.min : undefined,

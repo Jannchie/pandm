@@ -48,7 +48,7 @@ with pandm.init(project="mnist", config={"lr": 1e-3}) as run:
 | `run.log_image(key, image, step=None, caption=None)` | Log one image. `step` defaults to the latest metric step. |
 | `run.log_histogram(key, samples, *, step=None, bins=30, description=None)` | Log a distribution snapshot — drawn over time as a density heatmap. Needs numpy. See *Shaping how a metric renders*. |
 | `run.set_progress(current, total=None)` | Report progress in a custom unit (epochs, samples) for the ETA. |
-| `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None, description=None, panel=None, series=None, band=None, kind="line")` | Declare how the dashboard renders a metric. See *Shaping how a metric renders*. |
+| `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None, description=None, panel=None, series=None, band=None, kind="line", x_label=None, y_label=None, x_ticks=None, y_ticks=None)` | Declare how the dashboard renders a metric. See *Shaping how a metric renders*. |
 | `run.finish(status="finished")` | End the run. Also runs automatically at process exit. |
 | `run.delete()` | Delete this run + its media, locally and (in cloud mode) on the server. |
 
@@ -85,6 +85,12 @@ run.define_metric("reward/mean", min=-1, max=1)   # known-range scalar, plain ax
 - `goal` (`"max"` / `"min"`) marks which run is leading when several overlap.
 - `baseline` draws a dashed reference line — chance level (`0.5` for win-rate), a prior SOTA.
 - `description` is a one-line note under the chart, for names that don't speak for themselves.
+- `x_label` / `y_label` name the axes (e.g. `y_label="Reward"`, `x_label="Episode"`) — they show on every chart type.
+- `x_ticks` / `y_ticks` (lists of strings) replace numeric ticks with your own labels, positionally — but **only on a categorical axis**: a `kind="bar"` x-axis or a histogram's bin y-axis. They're ignored on a continuous value/time axis, where ticks stay numeric.
+
+```python
+run.define_metric("final/seat", kind="bar", x_ticks=["北", "东", "南", "西"], y_label="胜率")
+```
 
 **Multi-line panel (`panel=`)** — group related keys into one chart, one line each
 (reward decompositions, loss terms, multi-seat/opponent win rates):
@@ -128,6 +134,7 @@ sorted into the same prefix section as its siblings (`dist/*` lands under *dist*
 run.log_histogram("dist/episode_reward", episode_rewards, step=step, bins=30,
                   description="每个 eval 的 episode 回报分布")  # one-line subtitle, optional
 # already have a histogram? pass it precomputed: log_histogram(key, (counts, edges), step=step)
+# label the bin (y) axis categorically: define_metric(key, y_ticks=["低","中","高"], y_label="区间")
 ```
 
 For a band helper that aggregates raw samples into `mean/_lo/_hi`, and a full RL

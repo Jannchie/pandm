@@ -43,6 +43,10 @@ export interface MetricSpec {
   series?: string // legend label for this key's line (defaults to the key)
   band?: boolean | { lo: string; hi: string } // shaded CI: true = _lo/_hi suffix, or explicit keys
   kind?: 'line' | 'bar' | 'scatter' // chart type (default 'line')
+  x_label?: string // x-axis title (e.g. 'Episode'); applies to every chart type
+  y_label?: string // y-axis title (e.g. 'Reward')
+  x_ticks?: string[] // categorical x tick labels, positional — only on a category axis (bar)
+  y_ticks?: string[] // categorical y tick labels, positional — only on a category axis (histogram bins)
 }
 
 export interface Series {

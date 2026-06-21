@@ -22,6 +22,22 @@ echarts.use([
 
 const props = defineProps<{ run: Run; metricKey: string }>()
 
+// Axis title (define_metric x_label/y_label) — containLabel ignores the name, so
+// the grid is padded for it below.
+function axisName(label: string | undefined, axis: 'x' | 'y') {
+  if (!label) return {}
+  return {
+    name: label,
+    nameLocation: 'middle' as const,
+    nameGap: axis === 'y' ? 40 : 26,
+    nameTextStyle: {
+      color: CHART_INK.mut,
+      fontSize: 12,
+      fontFamily: CHART_FONT,
+    },
+  }
+}
+
 const el = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
 let resizeObs: ResizeObserver | null = null
@@ -51,20 +67,33 @@ async function update() {
     col.forEach((cnt, j) => data.push([i, j, cnt / colMax]))
   })
 
-  // y labels: bin centres from the most recent snapshot's edges (a reasonable proxy)
+  // y labels: author-supplied y_ticks (categorical bins), else bin centres from the
+  // most recent snapshot's edges (a reasonable proxy)
+  const spec = props.run.metric_meta?.[props.metricKey]
   const edges = h.bins[h.bins.length - 1] ?? []
-  const yLabels = Array.from({ length: nBins }, (_, j) =>
-    edges[j] !== undefined && edges[j + 1] !== undefined
-      ? fmtNum((edges[j] + edges[j + 1]) / 2)
-      : String(j),
+  const yLabels = Array.from(
+    { length: nBins },
+    (_, j) =>
+      spec?.y_ticks?.[j] ??
+      (edges[j] !== undefined && edges[j + 1] !== undefined
+        ? fmtNum((edges[j] + edges[j + 1]) / 2)
+        : String(j)),
   )
-  const xLabels = h.steps.map((s) => fmtStep(s))
+  const xLabels = spec?.x_ticks
+    ? h.steps.map((s, i) => spec.x_ticks?.[i] ?? fmtStep(s))
+    : h.steps.map((s) => fmtStep(s))
 
   chart.setOption(
     {
       textStyle: { fontFamily: CHART_FONT },
       animation: false,
-      grid: { left: 6, right: 10, top: 8, bottom: 2, containLabel: true },
+      grid: {
+        left: spec?.y_label ? 28 : 6,
+        right: 10,
+        top: 8,
+        bottom: spec?.x_label ? 24 : 2,
+        containLabel: true,
+      },
       tooltip: {
         backgroundColor: 'rgba(23,23,28,0.95)',
         borderColor: 'rgba(255,255,255,0.08)',
@@ -88,6 +117,7 @@ async function update() {
         },
       },
       xAxis: {
+        ...axisName(spec?.x_label, 'x'),
         type: 'category',
         data: xLabels,
         axisLine: { lineStyle: { color: 'rgba(255,255,255,0.12)' } },
@@ -96,6 +126,7 @@ async function update() {
         splitArea: { show: false },
       },
       yAxis: {
+        ...axisName(spec?.y_label, 'y'),
         type: 'category',
         data: yLabels,
         axisLine: { lineStyle: { color: 'rgba(255,255,255,0.12)' } },

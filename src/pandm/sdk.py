@@ -301,7 +301,8 @@ def summary(values: dict[str, Any]) -> None:
 
 def define_metric(key: str, **spec: Any) -> None:
     """Declare a metric's display spec on the most recently started run (mirrors
-    run.define_metric: min, max, unit, goal, baseline, panel, series, band, kind)."""
+    run.define_metric: min, max, unit, goal, baseline, panel, series, band, kind,
+    x_label, y_label, x_ticks, y_ticks)."""
     _current().define_metric(key, **spec)
 
 
@@ -444,6 +445,10 @@ class Run:
         series: str | None = None,
         band: bool | dict | None = None,
         kind: str | None = None,
+        x_label: str | None = None,
+        y_label: str | None = None,
+        x_ticks: list[str] | None = None,
+        y_ticks: list[str] | None = None,
     ) -> None:
         """Declare how the dashboard should render a metric — call once, before the
         loop. Pins the y-axis to a fixed range, formats it (e.g. as a percentage),
@@ -471,6 +476,13 @@ class Run:
             run.define_metric("reward/shaping", panel="reward")     #  } one chart, 3 lines
             run.define_metric("reward/terminal", panel="reward")    # /
             run.define_metric("eval/win_rate", band=True, unit="percent")  # mean + shaded CI
+
+        Name the axes with `x_label` / `y_label` (shown along each axis, e.g.
+        y_label="Reward", x_label="Episode") — these apply to every chart type. For a
+        categorical axis (a `kind="bar"` x-axis, or a histogram's bin y-axis) pass
+        `x_ticks` / `y_ticks` as a list of strings to replace the numeric ticks with
+        your own labels, positionally (ticks[i] labels slot i); they are ignored on a
+        continuous value/time axis, where labels stay numeric.
 
         The spec applies immediately — locally, and in cloud mode it is pushed live to
         the server (like progress). The backend write is best-effort, never interrupts
@@ -509,6 +521,14 @@ class Run:
                 )
             if kind != "line":  # the default is implicit — keep metric_meta minimal
                 spec["kind"] = kind
+        if x_label is not None:
+            spec["x_label"] = str(x_label)
+        if y_label is not None:
+            spec["y_label"] = str(y_label)
+        if x_ticks is not None:
+            spec["x_ticks"] = [str(t) for t in x_ticks]
+        if y_ticks is not None:
+            spec["y_ticks"] = [str(t) for t in y_ticks]
         if not spec:
             return
         try:
