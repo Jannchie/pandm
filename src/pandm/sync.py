@@ -15,14 +15,18 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from .client import _DEFAULT_TIMEOUT, _env_float, RemoteBackend
+from .client import _DEFAULT_TIMEOUT, RemoteBackend, _env_float
 from .storage import LocalStore
 
 _BATCH = 500
 _PUMP_INTERVAL = 2.0
 _LEASE_TTL = 60.0
-_REMOTE_HEARTBEAT_EVERY = 30.0  # only beat remotely when the pump has been idle this long
-_FINISH_DRAIN_BUDGET = 4.0  # default seconds to flush the tail before giving up to `pandm sync`
+_REMOTE_HEARTBEAT_EVERY = (
+    30.0  # only beat remotely when the pump has been idle this long
+)
+_FINISH_DRAIN_BUDGET = (
+    4.0  # default seconds to flush the tail before giving up to `pandm sync`
+)
 
 
 def _lease_owner() -> str:
@@ -69,7 +73,13 @@ def pump_run(store: LocalStore, remote: RemoteBackend, run_id: str) -> bool:
 
     for h in store.unsynced_histograms(run_id, state["histograms_rowid"], limit=_BATCH):
         ok = remote.log_histogram(
-            run_id, h["key"], h["step"], h["bins"], h["counts"], h["ts"], hist_seq=h["seq"]
+            run_id,
+            h["key"],
+            h["step"],
+            h["bins"],
+            h["counts"],
+            h["ts"],
+            hist_seq=h["seq"],
         )
         if not ok:
             return False
@@ -81,10 +91,15 @@ class Uploader:
     """Background sync thread for one live run."""
 
     def __init__(
-        self, root: Path, remote: RemoteBackend, run_id: str,
+        self,
+        root: Path,
+        remote: RemoteBackend,
+        run_id: str,
         create: tuple[str, str, dict, float, str, list[str], str | None],
     ):
-        self.store = LocalStore(root)  # own connection — never contends with the SDK's flush path
+        self.store = LocalStore(
+            root
+        )  # own connection — never contends with the SDK's flush path
         self.remote = remote
         self.run_id = run_id
         # (project, name, config, created_at, description, tags, group): replayed in-thread, never blocks init
@@ -93,20 +108,33 @@ class Uploader:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._last_contact = 0.0
-        self._pending_progress: tuple[float, float | None, float] | None = None  # latest unpushed (current, total, ts)
-        self._pending_meta: dict[str, Any] | None = None  # latest unpushed display specs (define_metric)
-        self._thread = threading.Thread(target=self._loop, daemon=True, name=f"pandm-sync-{run_id}")
+        self._pending_progress: tuple[float, float | None, float] | None = (
+            None  # latest unpushed (current, total, ts)
+        )
+        self._pending_meta: dict[str, Any] | None = (
+            None  # latest unpushed display specs (define_metric)
+        )
+        self._thread = threading.Thread(
+            target=self._loop, daemon=True, name=f"pandm-sync-{run_id}"
+        )
         self._thread.start()
 
     def notify(self) -> None:
         self._wake.set()
 
     def set_progress(self, current: float, total: float | None, ts: float) -> None:
-        self._pending_progress = (current, total, ts)  # overwrite: only the newest matters
+        self._pending_progress = (
+            current,
+            total,
+            ts,
+        )  # overwrite: only the newest matters
         self._wake.set()
 
     def set_meta(self, specs: dict[str, Any]) -> None:
-        self._pending_meta = {**(self._pending_meta or {}), **specs}  # accumulate until pushed
+        self._pending_meta = {
+            **(self._pending_meta or {}),
+            **specs,
+        }  # accumulate until pushed
         self._wake.set()
 
     def _push_progress(self) -> None:
@@ -114,7 +142,9 @@ class Uploader:
         if prog is None:
             return
         if self.remote.update_progress(self.run_id, *prog):
-            if self._pending_progress == prog:  # leave a newer value queued for the next pump
+            if (
+                self._pending_progress == prog
+            ):  # leave a newer value queued for the next pump
                 self._pending_progress = None
             self._last_contact = time.monotonic()
 
@@ -137,7 +167,9 @@ class Uploader:
 
     def _loop(self) -> None:
         project, name, config, created_at, description, tags, group = self._create
-        self.remote.create_run(self.run_id, project, name, config, created_at, description, tags, group)
+        self.remote.create_run(
+            self.run_id, project, name, config, created_at, description, tags, group
+        )
         while not self._stop.is_set():
             self._wake.wait(timeout=_PUMP_INTERVAL)
             self._wake.clear()
@@ -166,15 +198,25 @@ class Uploader:
         self._thread.join(timeout=budget)
         run = self.store.get_run(self.run_id)
         summary = run["summary"] if run else {}  # author scalars ride along with finish
-        metric_meta = run["metric_meta"] if run else {}  # so do per-metric display specs
+        metric_meta = (
+            run["metric_meta"] if run else {}
+        )  # so do per-metric display specs
         try:
-            if not self._thread.is_alive():  # still wedged → leave the tail to `pandm sync`
+            if (
+                not self._thread.is_alive()
+            ):  # still wedged → leave the tail to `pandm sync`
                 deadline = time.monotonic() + budget
-                with self.remote.deadline(budget):  # bound the requests, not just the loop
+                with self.remote.deadline(
+                    budget
+                ):  # bound the requests, not just the loop
                     while time.monotonic() < deadline:
                         if self._pump():
-                            if self.remote.finish_run(self.run_id, status, finished_at, summary, metric_meta):
-                                self.store.advance_sync_cursor(self.run_id, status_synced=True)
+                            if self.remote.finish_run(
+                                self.run_id, status, finished_at, summary, metric_meta
+                            ):
+                                self.store.advance_sync_cursor(
+                                    self.run_id, status_synced=True
+                                )
                             break
                         time.sleep(0.2)  # offline backoff; don't spin the deadline away
         except Exception:  # noqa: BLE001
@@ -195,7 +237,9 @@ class Uploader:
 class DualBackend:
     """SDK backend for logged-in users: synchronous local writes + background upload."""
 
-    def __init__(self, root: Path, server: str, api_key: str | None, transport: Any = None):
+    def __init__(
+        self, root: Path, server: str, api_key: str | None, transport: Any = None
+    ):
         self.local = LocalStore(root)
         self._root = root
         self._server = server
@@ -204,21 +248,39 @@ class DualBackend:
         self._uploader: Uploader | None = None
 
     def create_run(
-        self, run_id: str, project: str, name: str, config: dict[str, Any], description: str | None = None,
-        tags: list[str] | None = None, group: str | None = None,
+        self,
+        run_id: str,
+        project: str,
+        name: str,
+        config: dict[str, Any],
+        description: str | None = None,
+        tags: list[str] | None = None,
+        group: str | None = None,
     ) -> None:
         now = time.time()
         self.local.create_run(
-            run_id, project, name, config, created_at=now, description=description, tags=tags, group=group
+            run_id,
+            project,
+            name,
+            config,
+            created_at=now,
+            description=description,
+            tags=tags,
+            group=group,
         )
         self.local.ensure_sync_state(run_id)
         remote = RemoteBackend(self._server, self._api_key, transport=self._transport)
         self._uploader = Uploader(
-            self._root, remote, run_id, create=(project, name, config, now, description or "", tags or [], group)
+            self._root,
+            remote,
+            run_id,
+            create=(project, name, config, now, description or "", tags or [], group),
         )
 
     def run_exists(self, run_id: str) -> bool:
-        return self.local.run_exists(run_id)  # local-first: resume continues the local run
+        return self.local.run_exists(
+            run_id
+        )  # local-first: resume continues the local run
 
     def resume_run(self, run_id: str) -> int:
         step = self.local.resume_run(run_id)
@@ -234,40 +296,65 @@ class DualBackend:
                     pass
         return step
 
-    def log_metrics(self, run_id: str, rows: list[tuple[str, int, float, float]]) -> None:
+    def log_metrics(
+        self, run_id: str, rows: list[tuple[str, int, float, float]]
+    ) -> None:
         self.local.log_metrics(run_id, rows)
         if self._uploader:
             self._uploader.notify()
 
     def log_media(
-        self, run_id: str, key: str, step: int, data: bytes, ext: str, caption: str | None, ts: float
+        self,
+        run_id: str,
+        key: str,
+        step: int,
+        data: bytes,
+        ext: str,
+        caption: str | None,
+        ts: float,
     ) -> None:
         self.local.log_media(run_id, key, step, data, ext, caption, ts)
         if self._uploader:
             self._uploader.notify()
 
     def log_histogram(
-        self, run_id: str, key: str, step: int, bins: list[float], counts: list[int], ts: float
+        self,
+        run_id: str,
+        key: str,
+        step: int,
+        bins: list[float],
+        counts: list[int],
+        ts: float,
     ) -> None:
         self.local.log_histogram(run_id, key, step, bins, counts, ts)
         if self._uploader:
             self._uploader.notify()
 
     def heartbeat(self, run_id: str, ts: float) -> None:
-        self.local.heartbeat(run_id, ts)  # remote beats are throttled inside the uploader loop
+        self.local.heartbeat(
+            run_id, ts
+        )  # remote beats are throttled inside the uploader loop
 
-    def update_progress(self, run_id: str, current: float, total: float | None, ts: float) -> None:
+    def update_progress(
+        self, run_id: str, current: float, total: float | None, ts: float
+    ) -> None:
         self.local.update_progress(run_id, current, total, ts)
         if self._uploader:
-            self._uploader.set_progress(current, total, ts)  # remote push throttled in the uploader loop
+            self._uploader.set_progress(
+                current, total, ts
+            )  # remote push throttled in the uploader loop
 
     def set_summary(self, run_id: str, values: dict[str, Any]) -> None:
-        self.local.set_summary(run_id, values)  # remote upload rides along with finish (§ no separate endpoint)
+        self.local.set_summary(
+            run_id, values
+        )  # remote upload rides along with finish (§ no separate endpoint)
 
     def set_metric_meta(self, run_id: str, specs: dict[str, Any]) -> None:
         self.local.set_metric_meta(run_id, specs)
         if self._uploader:
-            self._uploader.set_meta(specs)  # pushed live in the uploader loop, like progress
+            self._uploader.set_meta(
+                specs
+            )  # pushed live in the uploader loop, like progress
 
     def finish_run(self, run_id: str, status: str, finished_at: float) -> None:
         self.local.finish_run(run_id, status, finished_at)
@@ -286,7 +373,12 @@ class DualBackend:
 
 
 def _sync_one(
-    store: LocalStore, server: str, api_key: str | None, owner: str, run_id: str, transport: Any
+    store: LocalStore,
+    server: str,
+    api_key: str | None,
+    owner: str,
+    run_id: str,
+    transport: Any,
 ) -> str:
     run = store.get_run(run_id)
     if run is None:
@@ -296,11 +388,19 @@ def _sync_one(
     try:
         remote = RemoteBackend(server, api_key, transport=transport)
         remote.create_run(
-            run_id, run["project"], run["name"], run["config"], run["created_at"], run["description"],
-            run.get("tags") or [], run.get("group"),
+            run_id,
+            run["project"],
+            run["name"],
+            run["config"],
+            run["created_at"],
+            run["description"],
+            run.get("tags") or [],
+            run.get("group"),
         )
         if run["metric_meta"]:
-            remote.set_metric_meta(run_id, run["metric_meta"])  # display specs, even while still running
+            remote.set_metric_meta(
+                run_id, run["metric_meta"]
+            )  # display specs, even while still running
         if not pump_run(store, remote, run_id):
             return "server unreachable"
         if run["status"] != "running":

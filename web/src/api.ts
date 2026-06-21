@@ -120,19 +120,25 @@ export async function approveCli(code: string): Promise<boolean> {
 export const fetchProjects = () => get<Project[]>('/api/projects')
 
 export const fetchRuns = (project?: string) =>
-  get<Run[]>(`/api/runs${project ? `?project=${encodeURIComponent(project)}` : ''}`)
+  get<Run[]>(
+    `/api/runs${project ? `?project=${encodeURIComponent(project)}` : ''}`,
+  )
 
 export const fetchSeries = (runId: string, key: string, afterStep?: number) =>
   get<Series>(
     `/api/runs/${runId}/metrics/${encodeURIComponent(key)}${afterStep !== undefined ? `?after_step=${afterStep}` : ''}`,
   )
 
-export const fetchMedia = (runId: string) => get<MediaItem[]>(`/api/runs/${runId}/media`)
+export const fetchMedia = (runId: string) =>
+  get<MediaItem[]>(`/api/runs/${runId}/media`)
 
-export const fetchHistogramKeys = (runId: string) => get<HistogramKey[]>(`/api/runs/${runId}/histograms`)
+export const fetchHistogramKeys = (runId: string) =>
+  get<HistogramKey[]>(`/api/runs/${runId}/histograms`)
 
 export const fetchHistogramSeries = (runId: string, key: string) =>
-  get<HistogramSeries>(`/api/runs/${runId}/histograms/${encodeURIComponent(key)}`)
+  get<HistogramSeries>(
+    `/api/runs/${runId}/histograms/${encodeURIComponent(key)}`,
+  )
 
 export async function deleteRun(runId: string): Promise<void> {
   const resp = await fetch(`/api/runs/${runId}`, { method: 'DELETE' })

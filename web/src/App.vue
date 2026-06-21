@@ -28,18 +28,27 @@ onMounted(() => bootstrap())
       <Sidebar />
       <main class="flex-1 min-w-0 flex flex-col">
         <!-- tab bar + per-tab controls -->
-        <div class="flex flex-col h-[37px] md:flex-row md:items-center border-b border-border shrink-0">
+        <div
+          class="flex flex-col h-[37px] md:flex-row md:items-center border-b border-border shrink-0"
+        >
           <!-- tabs: own row on mobile -->
-          <div class="flex items-center px-2 h-9 shrink-0 border-b border-border md:border-b-0">
+          <div
+            class="flex items-center px-2 h-9 shrink-0 border-b border-border md:border-b-0"
+          >
             <button
               v-for="t in TABS"
               :key="t.id"
               class="relative h-full px-2.5 text-[14px] transition-colors cursor-pointer shrink-0"
-              :class="state.tab === t.id ? 'text-fg' : 'text-fg-dim hover:text-fg-mut'"
+              :class="
+                state.tab === t.id ? 'text-fg' : 'text-fg-dim hover:text-fg-mut'
+              "
               @click="state.tab = t.id"
             >
               {{ t.label }}
-              <span v-if="state.tab === t.id" class="absolute inset-x-2 bottom-0 h-px bg-accent-hi" />
+              <span
+                v-if="state.tab === t.id"
+                class="absolute inset-x-2 bottom-0 h-px bg-accent-hi"
+              />
             </button>
           </div>
 
@@ -50,18 +59,57 @@ onMounted(() => bootstrap())
           >
             <div class="flex-1 min-w-2" />
 
-            <div v-if="state.tab !== 'table'" class="hidden md:flex items-center gap-2 mr-3 shrink-0" title="columns">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" class="text-fg-dim">
-                <rect x="3.5" y="5" width="17" height="14" stroke="currentColor" stroke-width="2" />
-                <path d="M9.5 5v14M14.5 5v14" stroke="currentColor" stroke-width="2" />
+            <div
+              v-if="state.tab !== 'table'"
+              class="hidden md:flex items-center gap-2 mr-3 shrink-0"
+              title="columns"
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                class="text-fg-dim"
+              >
+                <rect
+                  x="3.5"
+                  y="5"
+                  width="17"
+                  height="14"
+                  stroke="currentColor"
+                  stroke-width="2"
+                />
+                <path
+                  d="M9.5 5v14M14.5 5v14"
+                  stroke="currentColor"
+                  stroke-width="2"
+                />
               </svg>
-              <input v-model.number="state.columns" type="range" min="0" max="6" step="1" class="w-16" />
-              <span class="text-[12.5px] text-fg-dim w-7 tabular-nums">{{ state.columns || 'auto' }}</span>
+              <input
+                v-model.number="state.columns"
+                type="range"
+                min="0"
+                max="6"
+                step="1"
+                class="w-16"
+              />
+              <span class="text-[12.5px] text-fg-dim w-7 tabular-nums">{{
+                state.columns || 'auto'
+              }}</span>
             </div>
 
             <template v-if="state.tab === 'metrics'">
-              <div class="flex items-center gap-2 mr-3 shrink-0" title="smoothing">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" class="text-fg-dim">
+              <div
+                class="flex items-center gap-2 mr-3 shrink-0"
+                title="smoothing"
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  class="text-fg-dim"
+                >
                   <path
                     d="M3 17C7 17 8 7 12 7s5 10 9 10"
                     stroke="currentColor"
@@ -69,22 +117,45 @@ onMounted(() => bootstrap())
                     stroke-linecap="round"
                   />
                 </svg>
-                <input v-model.number="state.smoothing" type="range" min="0" max="0.99" step="0.01" class="w-24" />
-                <span class="text-[12.5px] text-fg-dim w-7 tabular-nums">{{ state.smoothing.toFixed(2) }}</span>
+                <input
+                  v-model.number="state.smoothing"
+                  type="range"
+                  min="0"
+                  max="0.99"
+                  step="0.01"
+                  class="w-24"
+                />
+                <span class="text-[12.5px] text-fg-dim w-7 tabular-nums">{{
+                  state.smoothing.toFixed(2)
+                }}</span>
               </div>
-              <div class="flex items-center bg-elev rounded-lg p-0.5 mr-2 shrink-0">
+              <div
+                class="flex items-center bg-elev rounded-lg p-0.5 mr-2 shrink-0"
+              >
                 <button
                   v-for="x in ['step', 'time', 'rtime'] as const"
                   :key="x"
                   class="px-2 py-0.5 rounded-md text-[13px] transition-colors capitalize"
-                  :class="state.xAxis === x ? 'bg-panel text-fg shadow-sm' : 'text-fg-dim hover:text-fg-mut'"
-                  :title="x === 'rtime' ? 'elapsed since each run started' : `x-axis: ${x}`"
+                  :class="
+                    state.xAxis === x
+                      ? 'bg-panel text-fg shadow-sm'
+                      : 'text-fg-dim hover:text-fg-mut'
+                  "
+                  :title="
+                    x === 'rtime'
+                      ? 'elapsed since each run started'
+                      : `x-axis: ${x}`
+                  "
                   @click="state.xAxis = x"
                 >
                   {{ x === 'rtime' ? 'elapsed' : x }}
                 </button>
               </div>
-              <button class="btn font-mono text-[13px] shrink-0" :class="{ 'btn-on !text-accent-hi': state.logScale }" @click="state.logScale = !state.logScale">
+              <button
+                class="btn font-mono text-[13px] shrink-0"
+                :class="{ 'btn-on !text-accent-hi': state.logScale }"
+                @click="state.logScale = !state.logScale"
+              >
                 log
               </button>
               <button
@@ -105,7 +176,13 @@ onMounted(() => bootstrap())
             v-if="state.ready && selectedRuns.length === 0"
             class="h-full flex flex-col items-center justify-center gap-3 text-fg-dim"
           >
-            <svg width="36" height="36" viewBox="0 0 32 32" fill="none" class="opacity-40">
+            <svg
+              width="36"
+              height="36"
+              viewBox="0 0 32 32"
+              fill="none"
+              class="opacity-40"
+            >
               <path
                 d="M5 24 L12 13 L18 18 L27 6"
                 stroke="currentColor"
@@ -115,7 +192,11 @@ onMounted(() => bootstrap())
               />
             </svg>
             <p class="text-[14.5px]">
-              {{ state.runs.length === 0 ? 'No runs yet — call pandm.init() in your training script' : 'Select runs in the sidebar to compare them' }}
+              {{
+                state.runs.length === 0
+                  ? 'No runs yet — call pandm.init() in your training script'
+                  : 'Select runs in the sidebar to compare them'
+              }}
             </p>
           </div>
           <MetricsPanel v-else-if="state.tab === 'metrics'" />

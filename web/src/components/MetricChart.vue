@@ -2,12 +2,28 @@
 import type { Run, Series } from '../api'
 import type { ChartDesc, ChartSeriesDesc } from '../store'
 import { BarChart, CustomChart, LineChart } from 'echarts/charts'
-import { DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, ToolboxComponent, TooltipComponent } from 'echarts/components'
+import {
+  DataZoomComponent,
+  GridComponent,
+  LegendComponent,
+  MarkLineComponent,
+  ToolboxComponent,
+  TooltipComponent,
+} from 'echarts/components'
 import * as echarts from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { runColor, seriesColor } from '../colors'
-import { CHART_FONT, CHART_INK, ema, fmtClock, fmtDuration, fmtMetric, fmtNum, fmtStep } from '../fmt'
+import {
+  CHART_FONT,
+  CHART_INK,
+  ema,
+  fmtClock,
+  fmtDuration,
+  fmtMetric,
+  fmtNum,
+  fmtStep,
+} from '../fmt'
 import { getSeries, metricSpec, selectedRuns, state } from '../store'
 
 echarts.use([
@@ -52,17 +68,26 @@ function esc(s: string): string {
 // so series added/removed by a poll are handled gracefully.
 function applyOption(option: echarts.EChartsCoreOption) {
   if (!chart) return
-  const prev = (chart.getOption()?.legend as { selected?: Record<string, boolean> }[] | undefined)?.[0]?.selected
+  const prev = (
+    chart.getOption()?.legend as
+      | { selected?: Record<string, boolean> }[]
+      | undefined
+  )?.[0]?.selected
   chart.setOption(option, { notMerge: true })
   if (prev) chart.setOption({ legend: { selected: prev } })
 }
 
-const zip = (xs: number[], ys: number[]) => xs.map((x, i) => [x, ys[i]] as [number, number])
+const zip = (xs: number[], ys: number[]) =>
+  xs.map((x, i) => [x, ys[i]] as [number, number])
 // step -> raw step; time -> absolute ms (echarts time axis); rtime -> seconds
 // elapsed since this run started, so runs launched at different wall-clock times
 // line up on a common relative axis.
 const xOf = (d: Series, run: Run) =>
-  state.xAxis === 'step' ? d.steps : state.xAxis === 'rtime' ? d.ts.map((t) => t - run.created_at) : d.ts.map((t) => t * 1000)
+  state.xAxis === 'step'
+    ? d.steps
+    : state.xAxis === 'rtime'
+      ? d.ts.map((t) => t - run.created_at)
+      : d.ts.map((t) => t * 1000)
 
 interface Cell {
   run: Run
@@ -85,7 +110,8 @@ function renderBar() {
 
   // a bar's height is the metric's latest value (stats.last), or its author-written
   // summary scalar when the value lives there (run.summary) rather than in a series.
-  const valueOf = (run: Run, key: string) => run.stats?.[key]?.last ?? run.summary?.[key] ?? null
+  const valueOf = (run: Run, key: string) =>
+    run.stats?.[key]?.last ?? run.summary?.[key] ?? null
   const series: object[] = grouped
     ? runs.map((run) => ({
         name: run.name,
@@ -105,54 +131,72 @@ function renderBar() {
         },
       ]
 
-  applyOption(
-    {
-      animationDuration: 200,
-      animationDurationUpdate: 250,
-      textStyle: { fontFamily: CHART_FONT },
-      legend: grouped
-        ? {
-            show: true,
-            type: 'scroll',
-            top: 0,
-            textStyle: { color: CHART_INK.mut, fontSize: 11, fontFamily: CHART_FONT },
-            icon: 'roundRect',
-            itemWidth: 10,
-            itemHeight: 3,
-            itemGap: 10,
-            inactiveColor: CHART_INK.faint,
-          }
-        : { show: false },
-      grid: { left: 6, right: 14, top: grouped ? 28 : 12, bottom: 2, containLabel: true },
-      xAxis: {
-        type: 'category',
-        data: categories,
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,0.12)' } },
-        axisTick: { show: false },
-        axisLabel: { color: CHART_INK.mut, fontSize: 11, interval: 0, hideOverlap: true },
-      },
-      yAxis: {
-        type: 'value',
-        scale: !spec,
-        min: spec?.min,
-        max: spec?.max,
-        axisLabel: { color: CHART_INK.dim, fontSize: 12, formatter: (v: number) => fmtMetric(v, spec?.unit) },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
-        splitNumber: 4,
-      },
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: { type: 'shadow' },
-        backgroundColor: 'rgba(23,23,28,0.95)',
-        borderColor: 'rgba(255,255,255,0.08)',
-        padding: [6, 10],
-        textStyle: { color: CHART_INK.fg, fontSize: 13, fontFamily: CHART_FONT },
-        extraCssText: 'border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);backdrop-filter:blur(8px)',
-        valueFormatter: (v: number) => fmtMetric(v, spec?.unit),
-      },
-      series,
+  applyOption({
+    animationDuration: 200,
+    animationDurationUpdate: 250,
+    textStyle: { fontFamily: CHART_FONT },
+    legend: grouped
+      ? {
+          show: true,
+          type: 'scroll',
+          top: 0,
+          textStyle: {
+            color: CHART_INK.mut,
+            fontSize: 11,
+            fontFamily: CHART_FONT,
+          },
+          icon: 'roundRect',
+          itemWidth: 10,
+          itemHeight: 3,
+          itemGap: 10,
+          inactiveColor: CHART_INK.faint,
+        }
+      : { show: false },
+    grid: {
+      left: 6,
+      right: 14,
+      top: grouped ? 28 : 12,
+      bottom: 2,
+      containLabel: true,
     },
-  )
+    xAxis: {
+      type: 'category',
+      data: categories,
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.12)' } },
+      axisTick: { show: false },
+      axisLabel: {
+        color: CHART_INK.mut,
+        fontSize: 11,
+        interval: 0,
+        hideOverlap: true,
+      },
+    },
+    yAxis: {
+      type: 'value',
+      scale: !spec,
+      min: spec?.min,
+      max: spec?.max,
+      axisLabel: {
+        color: CHART_INK.dim,
+        fontSize: 12,
+        formatter: (v: number) => fmtMetric(v, spec?.unit),
+      },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
+      splitNumber: 4,
+    },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      backgroundColor: 'rgba(23,23,28,0.95)',
+      borderColor: 'rgba(255,255,255,0.08)',
+      padding: [6, 10],
+      textStyle: { color: CHART_INK.fg, fontSize: 13, fontFamily: CHART_FONT },
+      extraCssText:
+        'border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);backdrop-filter:blur(8px)',
+      valueFormatter: (v: number) => fmtMetric(v, spec?.unit),
+    },
+    series,
+  })
 }
 
 async function update() {
@@ -169,12 +213,18 @@ async function update() {
 
   // fetch every (run, series) mean, plus band bounds where a series declares them
   const cells: Cell[] = []
-  for (const run of runs) desc.series.forEach((s, sIdx) => cells.push({ run, s, sIdx }))
+  for (const run of runs)
+    desc.series.forEach((s, sIdx) => cells.push({ run, s, sIdx }))
   const fetched = await Promise.all(
     cells.map(async (c) => {
       const mean = await getSeries(c.run, c.s.key).catch(() => null)
       if (!mean || !c.s.band || !drawBands)
-        return { c, mean, lo: null as Series | null, hi: null as Series | null }
+        return {
+          c,
+          mean,
+          lo: null as Series | null,
+          hi: null as Series | null,
+        }
       const [lo, hi] = await Promise.all([
         getSeries(c.run, c.s.band.lo).catch(() => null),
         getSeries(c.run, c.s.band.hi).catch(() => null),
@@ -223,7 +273,11 @@ async function update() {
                 color: CHART_INK.mut,
                 fontSize: 11,
               },
-              lineStyle: { color: 'rgba(255,255,255,0.22)', type: 'dashed' as const, width: 1 },
+              lineStyle: {
+                color: 'rgba(255,255,255,0.22)',
+                type: 'dashed' as const,
+                width: 1,
+              },
             },
           ],
         }
@@ -242,9 +296,18 @@ async function update() {
     // panel). A custom series (not stacked areas) so it renders correctly on
     // value/time axes, where line stacking misplaces the fill. lo/hi are co-logged
     // with the mean, so they're index-aligned; if they desync we skip the band.
-    if (lo && hi && lo.values.length > 0 && lo.values.length === hi.values.length) {
+    if (
+      lo &&
+      hi &&
+      lo.values.length > 0 &&
+      lo.values.length === hi.values.length
+    ) {
       const bx = xOf(lo, c.run)
-      const pts: [number, number, number][] = bx.map((x, j) => [x, lo.values[j], hi.values[j]])
+      const pts: [number, number, number][] = bx.map((x, j) => [
+        x,
+        lo.values[j],
+        hi.values[j],
+      ])
       series.push({
         name: `__band__${name}`,
         type: 'custom',
@@ -254,12 +317,21 @@ async function update() {
         clip: true,
         encode: { x: 0, y: [1, 2] }, // x from dim 0, y extent from lo+hi
         data: pts,
-        renderItem: (params: { dataIndex: number }, api: { coord: (v: number[]) => number[] }) => {
+        renderItem: (
+          params: { dataIndex: number },
+          api: { coord: (v: number[]) => number[] },
+        ) => {
           if (params.dataIndex !== 0) return undefined // draw the whole band once
           const ring: number[][] = []
-          for (let j = 0; j < pts.length; j++) ring.push(api.coord([pts[j][0], pts[j][1]]))
-          for (let j = pts.length - 1; j >= 0; j--) ring.push(api.coord([pts[j][0], pts[j][2]]))
-          return { type: 'polygon', shape: { points: ring }, style: { fill: color, opacity: 0.16 } }
+          for (let j = 0; j < pts.length; j++)
+            ring.push(api.coord([pts[j][0], pts[j][1]]))
+          for (let j = pts.length - 1; j >= 0; j--)
+            ring.push(api.coord([pts[j][0], pts[j][2]]))
+          return {
+            type: 'polygon',
+            shape: { points: ring },
+            style: { fill: color, opacity: 0.16 },
+          }
         },
       })
     }
@@ -299,109 +371,148 @@ async function update() {
       itemStyle: { color },
       emphasis: { focus: 'none' },
       z: 2,
-      ...(markLine && !markLinePlaced ? ((markLinePlaced = true), { markLine }) : {}),
+      ...(markLine && !markLinePlaced
+        ? ((markLinePlaced = true), { markLine })
+        : {}),
     })
   }
 
-  applyOption(
-    {
-      animationDuration: 200,
-      animationDurationUpdate: 250,
-      textStyle: { fontFamily: CHART_FONT },
-      // a panel legend names the lines; single-key charts keep the lean top margin
-      legend: bySeries
-        ? {
-            show: true,
-            type: 'scroll',
-            top: 0,
-            data: legendNames,
-            textStyle: { color: CHART_INK.mut, fontSize: 11, fontFamily: CHART_FONT },
-            icon: 'roundRect',
-            itemWidth: 10,
-            itemHeight: 3,
-            itemGap: 10,
-            inactiveColor: CHART_INK.faint,
-          }
-        : { show: false },
-      grid: { left: 6, right: 14, top: bySeries ? 28 : 12, bottom: 2, containLabel: true },
-      // drag-select to zoom x: a hidden toolbox dataZoom feed; its `datazoom` event
-      // lifts the picked range into state.xRange (below), which every chart renders
-      // via xAxis.min/max — so one drag zooms them all. filterMode 'none' clips the
-      // axis without dropping points, keeping bands/ghosts aligned.
-      toolbox: { show: false, feature: { dataZoom: { show: true, yAxisIndex: 'none', filterMode: 'none' } } },
-      dataZoom: [
-        {
-          type: 'inside',
-          xAxisIndex: 0,
-          filterMode: 'none',
-          zoomOnMouseWheel: false, // inside is only the zoom *target*; drag-select drives it
-          moveOnMouseMove: false,
-          moveOnMouseWheel: false,
-          ...(state.xRange ? { startValue: state.xRange[0], endValue: state.xRange[1] } : { start: 0, end: 100 }),
-        },
-      ],
-      xAxis: {
-        type: state.xAxis === 'time' ? 'time' : 'value',
-        min: 'dataMin',
-        max: 'dataMax',
-        axisLine: { show: false },
-        axisTick: { show: false },
-        axisLabel: {
-          color: CHART_INK.dim,
-          fontSize: 12,
-          formatter:
-            state.xAxis === 'step'
-              ? (v: number) => fmtNum(v)
-              : state.xAxis === 'rtime'
-                ? (v: number) => fmtDuration(v)
-                : undefined,
-        },
-        splitLine: { show: false },
-      },
-      yAxis: {
-        type: state.logScale ? 'log' : 'value',
-        scale: !fixed, // a declared range pins the axis; otherwise fit the data
-        min: fixed && spec.min !== undefined ? spec.min : undefined,
-        max: fixed && spec.max !== undefined ? spec.max : undefined,
-        axisLabel: { color: CHART_INK.dim, fontSize: 12, formatter: (v: number) => fmtMetric(v, spec?.unit) },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
-        splitNumber: 4,
-      },
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(23,23,28,0.95)',
-        borderColor: 'rgba(255,255,255,0.08)',
-        padding: [6, 10],
-        textStyle: { color: CHART_INK.fg, fontSize: 13, fontFamily: CHART_FONT },
-        extraCssText: 'border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);backdrop-filter:blur(8px)',
-        axisPointer: { type: 'line', lineStyle: { color: 'rgba(255,255,255,0.15)' } },
-        formatter: (params: unknown) => {
-          const rows = (params as { seriesName: string, color: string, value: [number, number] }[]).filter(
-            (p) => !p.seriesName.startsWith('__'), // hide ghost + band helper series
-          )
-          if (!rows.length) return ''
-          const x = rows[0].value[0]
-          const head =
-            state.xAxis === 'step' ? `step ${fmtStep(x)}` : state.xAxis === 'rtime' ? `+${fmtDuration(x)}` : fmtClock(x / 1000)
-          const body = rows
-            .slice()
-            .sort((a, b) => b.value[1] - a.value[1])
-            .map(
-              (p) =>
-                `<div style="display:flex;align-items:center;gap:6px;margin-top:3px;min-width:150px">`
-                + `<span style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:${p.color}"></span>`
-                + `<span style="color:${CHART_INK.mut};max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.seriesName)}</span>`
-                + `<span style="margin-left:auto;padding-left:12px;font-family:${CHART_FONT}">${fmtMetric(p.value[1], spec?.unit)}</span></div>`,
-            )
-            .join('')
-          return `<div style="font-size:12px;color:${CHART_INK.dim}">${head}</div>${body}`
-        },
-      },
-      series,
+  applyOption({
+    animationDuration: 200,
+    animationDurationUpdate: 250,
+    textStyle: { fontFamily: CHART_FONT },
+    // a panel legend names the lines; single-key charts keep the lean top margin
+    legend: bySeries
+      ? {
+          show: true,
+          type: 'scroll',
+          top: 0,
+          data: legendNames,
+          textStyle: {
+            color: CHART_INK.mut,
+            fontSize: 11,
+            fontFamily: CHART_FONT,
+          },
+          icon: 'roundRect',
+          itemWidth: 10,
+          itemHeight: 3,
+          itemGap: 10,
+          inactiveColor: CHART_INK.faint,
+        }
+      : { show: false },
+    grid: {
+      left: 6,
+      right: 14,
+      top: bySeries ? 28 : 12,
+      bottom: 2,
+      containLabel: true,
     },
-  )
+    // drag-select to zoom x: a hidden toolbox dataZoom feed; its `datazoom` event
+    // lifts the picked range into state.xRange (below), which every chart renders
+    // via xAxis.min/max — so one drag zooms them all. filterMode 'none' clips the
+    // axis without dropping points, keeping bands/ghosts aligned.
+    toolbox: {
+      show: false,
+      feature: {
+        dataZoom: { show: true, yAxisIndex: 'none', filterMode: 'none' },
+      },
+    },
+    dataZoom: [
+      {
+        type: 'inside',
+        xAxisIndex: 0,
+        filterMode: 'none',
+        zoomOnMouseWheel: false, // inside is only the zoom *target*; drag-select drives it
+        moveOnMouseMove: false,
+        moveOnMouseWheel: false,
+        ...(state.xRange
+          ? { startValue: state.xRange[0], endValue: state.xRange[1] }
+          : { start: 0, end: 100 }),
+      },
+    ],
+    xAxis: {
+      type: state.xAxis === 'time' ? 'time' : 'value',
+      min: 'dataMin',
+      max: 'dataMax',
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: {
+        color: CHART_INK.dim,
+        fontSize: 12,
+        formatter:
+          state.xAxis === 'step'
+            ? (v: number) => fmtNum(v)
+            : state.xAxis === 'rtime'
+              ? (v: number) => fmtDuration(v)
+              : undefined,
+      },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: state.logScale ? 'log' : 'value',
+      scale: !fixed, // a declared range pins the axis; otherwise fit the data
+      min: fixed && spec.min !== undefined ? spec.min : undefined,
+      max: fixed && spec.max !== undefined ? spec.max : undefined,
+      axisLabel: {
+        color: CHART_INK.dim,
+        fontSize: 12,
+        formatter: (v: number) => fmtMetric(v, spec?.unit),
+      },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
+      splitNumber: 4,
+    },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(23,23,28,0.95)',
+      borderColor: 'rgba(255,255,255,0.08)',
+      padding: [6, 10],
+      textStyle: { color: CHART_INK.fg, fontSize: 13, fontFamily: CHART_FONT },
+      extraCssText:
+        'border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);backdrop-filter:blur(8px)',
+      axisPointer: {
+        type: 'line',
+        lineStyle: { color: 'rgba(255,255,255,0.15)' },
+      },
+      formatter: (params: unknown) => {
+        const rows = (
+          params as {
+            seriesName: string
+            color: string
+            value: [number, number]
+          }[]
+        ).filter(
+          (p) => !p.seriesName.startsWith('__'), // hide ghost + band helper series
+        )
+        if (!rows.length) return ''
+        const x = rows[0].value[0]
+        const head =
+          state.xAxis === 'step'
+            ? `step ${fmtStep(x)}`
+            : state.xAxis === 'rtime'
+              ? `+${fmtDuration(x)}`
+              : fmtClock(x / 1000)
+        const body = rows
+          .slice()
+          .sort((a, b) => b.value[1] - a.value[1])
+          .map(
+            (p) =>
+              `<div style="display:flex;align-items:center;gap:6px;margin-top:3px;min-width:150px">` +
+              `<span style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:${p.color}"></span>` +
+              `<span style="color:${CHART_INK.mut};max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.seriesName)}</span>` +
+              `<span style="margin-left:auto;padding-left:12px;font-family:${CHART_FONT}">${fmtMetric(p.value[1], spec?.unit)}</span></div>`,
+          )
+          .join('')
+        return `<div style="font-size:12px;color:${CHART_INK.dim}">${head}</div>${body}`
+      },
+    },
+    series,
+  })
   // re-arm drag-to-zoom: a notMerge redraw drops the active selection cursor
-  chart.dispatchAction({ type: 'takeGlobalCursor', key: 'dataZoomSelect', dataZoomSelectActive: true })
+  chart.dispatchAction({
+    type: 'takeGlobalCursor',
+    key: 'dataZoomSelect',
+    dataZoomSelectActive: true,
+  })
 }
 
 onMounted(() => {
@@ -412,13 +523,24 @@ onMounted(() => {
   // toolbox area-select reports absolute values in event.batch; fall back to the
   // dataZoom component's startValue/endValue if a build delivers them only there.
   chart.on('datazoom', (params: unknown) => {
-    const batch = (params as { batch?: { startValue?: number, endValue?: number }[] }).batch?.[0]
-    const dz = (chart?.getOption().dataZoom as { startValue?: number, endValue?: number }[] | undefined)?.[0]
+    const batch = (
+      params as { batch?: { startValue?: number; endValue?: number }[] }
+    ).batch?.[0]
+    const dz = (
+      chart?.getOption().dataZoom as
+        | { startValue?: number; endValue?: number }[]
+        | undefined
+    )?.[0]
     const sv = batch?.startValue ?? dz?.startValue
     const ev = batch?.endValue ?? dz?.endValue
     if (sv == null || ev == null || sv === ev) return
     const next: [number, number] = sv < ev ? [sv, ev] : [ev, sv]
-    if (!state.xRange || state.xRange[0] !== next[0] || state.xRange[1] !== next[1]) state.xRange = next
+    if (
+      !state.xRange ||
+      state.xRange[0] !== next[0] ||
+      state.xRange[1] !== next[1]
+    )
+      state.xRange = next
   })
   chart.getZr().on('dblclick', () => {
     state.xRange = null // double-click anywhere clears the shared zoom

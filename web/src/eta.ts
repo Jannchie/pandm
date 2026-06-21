@@ -31,7 +31,10 @@ export function estimateEta(run: Run): Eta | null {
   if (current == null) return null // run never reported progress
   const total = run.progress_total
   const ts = run.progress_ts ?? run.updated_at
-  const fraction = total != null && total > 0 ? Math.min(1, Math.max(0, current / total)) : null
+  const fraction =
+    total != null && total > 0
+      ? Math.min(1, Math.max(0, current / total))
+      : null
 
   const prev = samples.get(run.id)
   let rate = prev?.rate ?? null
@@ -48,7 +51,9 @@ export function estimateEta(run: Run): Eta | null {
   }
 
   const finishAt =
-    rate != null && rate > 0 && total != null && total > current ? ts + (total - current) / rate : null
+    rate != null && rate > 0 && total != null && total > current
+      ? ts + (total - current) / rate
+      : null
   return { fraction, finishAt, ratePerSec: rate }
 }
 

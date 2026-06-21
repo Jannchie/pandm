@@ -194,31 +194,51 @@ class LocalStore:
 
     def _migrate(self) -> None:
         """Idempotent migrations for databases created by older versions."""
-        cols = {r["name"] for r in self._db.execute("PRAGMA table_info(runs)").fetchall()}
+        cols = {
+            r["name"] for r in self._db.execute("PRAGMA table_info(runs)").fetchall()
+        }
         if "user_id" not in cols:
             self._db.execute("ALTER TABLE runs ADD COLUMN user_id INTEGER")
         for col in ("progress", "progress_total", "progress_ts"):
             if col not in cols:
                 self._db.execute(f"ALTER TABLE runs ADD COLUMN {col} REAL")
         if "summary" not in cols:
-            self._db.execute("ALTER TABLE runs ADD COLUMN summary TEXT NOT NULL DEFAULT '{}'")
+            self._db.execute(
+                "ALTER TABLE runs ADD COLUMN summary TEXT NOT NULL DEFAULT '{}'"
+            )
         if "metric_meta" not in cols:
-            self._db.execute("ALTER TABLE runs ADD COLUMN metric_meta TEXT NOT NULL DEFAULT '{}'")
+            self._db.execute(
+                "ALTER TABLE runs ADD COLUMN metric_meta TEXT NOT NULL DEFAULT '{}'"
+            )
         if "description" not in cols:
-            self._db.execute("ALTER TABLE runs ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+            self._db.execute(
+                "ALTER TABLE runs ADD COLUMN description TEXT NOT NULL DEFAULT ''"
+            )
         if "tags" not in cols:
-            self._db.execute("ALTER TABLE runs ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
+            self._db.execute(
+                "ALTER TABLE runs ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'"
+            )
         if "group_name" not in cols:
             self._db.execute("ALTER TABLE runs ADD COLUMN group_name TEXT")
         self._db.execute("CREATE INDEX IF NOT EXISTS idx_runs_user ON runs (user_id)")
         # histogram sync cursors — the histograms table itself is (re)created by the
         # schema script above; only the older sync tables need the new columns.
-        ss_cols = {r["name"] for r in self._db.execute("PRAGMA table_info(sync_state)").fetchall()}
+        ss_cols = {
+            r["name"]
+            for r in self._db.execute("PRAGMA table_info(sync_state)").fetchall()
+        }
         if "histograms_rowid" not in ss_cols:
-            self._db.execute("ALTER TABLE sync_state ADD COLUMN histograms_rowid INTEGER NOT NULL DEFAULT 0")
-        sp_cols = {r["name"] for r in self._db.execute("PRAGMA table_info(sync_progress)").fetchall()}
+            self._db.execute(
+                "ALTER TABLE sync_state ADD COLUMN histograms_rowid INTEGER NOT NULL DEFAULT 0"
+            )
+        sp_cols = {
+            r["name"]
+            for r in self._db.execute("PRAGMA table_info(sync_progress)").fetchall()
+        }
         if "last_histograms_rowid" not in sp_cols:
-            self._db.execute("ALTER TABLE sync_progress ADD COLUMN last_histograms_rowid INTEGER NOT NULL DEFAULT 0")
+            self._db.execute(
+                "ALTER TABLE sync_progress ADD COLUMN last_histograms_rowid INTEGER NOT NULL DEFAULT 0"
+            )
 
     def close(self) -> None:
         with self._lock:
@@ -244,12 +264,24 @@ class LocalStore:
                 "INSERT OR IGNORE INTO runs"
                 " (id, project, name, description, status, config, created_at, updated_at, user_id, tags, group_name)"
                 " VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?)",
-                (run_id, project, name, description or "", json.dumps(config, default=str), now, now, user_id,
-                 json.dumps(_norm_tags(tags)), group or None),
+                (
+                    run_id,
+                    project,
+                    name,
+                    description or "",
+                    json.dumps(config, default=str),
+                    now,
+                    now,
+                    user_id,
+                    json.dumps(_norm_tags(tags)),
+                    group or None,
+                ),
             )
             self._db.commit()
 
-    def log_metrics(self, run_id: str, rows: list[tuple[str, int, float, float]]) -> None:
+    def log_metrics(
+        self, run_id: str, rows: list[tuple[str, int, float, float]]
+    ) -> None:
         """rows: [(key, step, value, ts), ...]"""
         if not rows:
             return
@@ -284,7 +316,10 @@ class LocalStore:
                 "INSERT INTO media (run_id, key, step, filename, caption, ts) VALUES (?, ?, ?, ?, ?, ?)",
                 (run_id, key, step, filename, caption, ts),
             )
-            self._db.execute("UPDATE runs SET updated_at = MAX(updated_at, ?) WHERE id = ?", (ts, run_id))
+            self._db.execute(
+                "UPDATE runs SET updated_at = MAX(updated_at, ?) WHERE id = ?",
+                (ts, run_id),
+            )
             self._db.commit()
         return filename
 
@@ -303,21 +338,36 @@ class LocalStore:
         with self._lock:
             self._db.execute(
                 "INSERT INTO histograms (run_id, key, step, bins, counts, ts) VALUES (?, ?, ?, ?, ?, ?)",
-                (run_id, key, int(step), json.dumps(list(bins)), json.dumps(list(counts)), ts),
+                (
+                    run_id,
+                    key,
+                    int(step),
+                    json.dumps(list(bins)),
+                    json.dumps(list(counts)),
+                    ts,
+                ),
             )
-            self._db.execute("UPDATE runs SET updated_at = MAX(updated_at, ?) WHERE id = ?", (ts, run_id))
+            self._db.execute(
+                "UPDATE runs SET updated_at = MAX(updated_at, ?) WHERE id = ?",
+                (ts, run_id),
+            )
             self._db.commit()
 
     def heartbeat(self, run_id: str, ts: float | None = None) -> None:
         ts = ts if ts is not None else time.time()
         with self._lock:
             self._db.execute(
-                "UPDATE runs SET updated_at = ? WHERE id = ? AND status = 'running'", (ts, run_id)
+                "UPDATE runs SET updated_at = ? WHERE id = ? AND status = 'running'",
+                (ts, run_id),
             )
             self._db.commit()
 
     def update_progress(
-        self, run_id: str, current: float, total: float | None = None, ts: float | None = None
+        self,
+        run_id: str,
+        current: float,
+        total: float | None = None,
+        ts: float | None = None,
     ) -> None:
         """Record training progress (also doubles as a heartbeat). `total=None`
         keeps whatever total was set before — the loop need only resend it on change."""
@@ -344,7 +394,9 @@ class LocalStore:
         if not values:
             return
         with self._lock:
-            row = self._db.execute("SELECT summary FROM runs WHERE id = ?", (run_id,)).fetchone()
+            row = self._db.execute(
+                "SELECT summary FROM runs WHERE id = ?", (run_id,)
+            ).fetchone()
             if row is None:
                 return
             merged = json.loads(row["summary"] or "{}")
@@ -362,7 +414,9 @@ class LocalStore:
         if not specs:
             return
         with self._lock:
-            row = self._db.execute("SELECT metric_meta FROM runs WHERE id = ?", (run_id,)).fetchone()
+            row = self._db.execute(
+                "SELECT metric_meta FROM runs WHERE id = ?", (run_id,)
+            ).fetchone()
             if row is None:
                 return
             merged = json.loads(row["metric_meta"] or "{}")
@@ -373,7 +427,9 @@ class LocalStore:
             )
             self._db.commit()
 
-    def finish_run(self, run_id: str, status: str = "finished", finished_at: float | None = None) -> None:
+    def finish_run(
+        self, run_id: str, status: str = "finished", finished_at: float | None = None
+    ) -> None:
         now = finished_at if finished_at is not None else time.time()
         with self._lock:
             self._db.execute(
@@ -415,7 +471,10 @@ class LocalStore:
         params = (project, user_id) if user_id is not None else (project,)
         with self._lock:
             run_ids = [
-                r["id"] for r in self._db.execute(f"SELECT id FROM runs WHERE {where}", params).fetchall()
+                r["id"]
+                for r in self._db.execute(
+                    f"SELECT id FROM runs WHERE {where}", params
+                ).fetchall()
             ]
             for run_id in run_ids:
                 self._db.execute("DELETE FROM metrics WHERE run_id = ?", (run_id,))
@@ -439,7 +498,9 @@ class LocalStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def list_runs(self, project: str | None = None, user_id: int | None = None) -> list[dict[str, Any]]:
+    def list_runs(
+        self, project: str | None = None, user_id: int | None = None
+    ) -> list[dict[str, Any]]:
         clauses, params = [], []
         if project:
             clauses.append("project = ?")
@@ -463,7 +524,9 @@ class LocalStore:
 
     def get_run(self, run_id: str, user_id: int | None = None) -> dict[str, Any] | None:
         with self._lock:
-            row = self._db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+            row = self._db.execute(
+                "SELECT * FROM runs WHERE id = ?", (run_id,)
+            ).fetchone()
         if row is None:
             return None
         run = _run_row_to_dict(row)
@@ -475,12 +538,16 @@ class LocalStore:
     def run_owner(self, run_id: str) -> int | None:
         """user_id of the run's owner, or None (unowned local run / missing run)."""
         with self._lock:
-            row = self._db.execute("SELECT user_id FROM runs WHERE id = ?", (run_id,)).fetchone()
+            row = self._db.execute(
+                "SELECT user_id FROM runs WHERE id = ?", (run_id,)
+            ).fetchone()
         return row["user_id"] if row else None
 
     def run_exists(self, run_id: str) -> bool:
         with self._lock:
-            row = self._db.execute("SELECT 1 FROM runs WHERE id = ?", (run_id,)).fetchone()
+            row = self._db.execute(
+                "SELECT 1 FROM runs WHERE id = ?", (run_id,)
+            ).fetchone()
         return row is not None
 
     def _summaries(self, run_ids: list[str]) -> dict[str, dict[str, float]]:
@@ -543,7 +610,11 @@ class LocalStore:
         return [dict(r) for r in rows]
 
     def metric_series(
-        self, run_id: str, key: str, max_points: int = 1500, after_step: int | None = None
+        self,
+        run_id: str,
+        key: str,
+        max_points: int = 1500,
+        after_step: int | None = None,
     ) -> dict[str, list]:
         """Series for one (run, key), stride-downsampled to ~max_points (always keeps the last point).
 
@@ -564,7 +635,8 @@ class LocalStore:
             }
         with self._lock:
             total = self._db.execute(
-                "SELECT COUNT(*) FROM metrics WHERE run_id = ? AND key = ?", (run_id, key)
+                "SELECT COUNT(*) FROM metrics WHERE run_id = ? AND key = ?",
+                (run_id, key),
             ).fetchone()[0]
             if total == 0:
                 return {"steps": [], "values": [], "ts": []}
@@ -593,13 +665,16 @@ class LocalStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def histogram_series(self, run_id: str, key: str, max_steps: int = 200) -> dict[str, list]:
+    def histogram_series(
+        self, run_id: str, key: str, max_steps: int = 200
+    ) -> dict[str, list]:
         """Every stored distribution for one (run, key), stride-sampled to ~max_steps
         (always keeps the last). bins/counts come back as parsed lists — the dashboard
         draws them as a step×bin density heatmap."""
         with self._lock:
             total = self._db.execute(
-                "SELECT COUNT(*) FROM histograms WHERE run_id = ? AND key = ?", (run_id, key)
+                "SELECT COUNT(*) FROM histograms WHERE run_id = ? AND key = ?",
+                (run_id, key),
             ).fetchone()[0]
             if total == 0:
                 return {"steps": [], "bins": [], "counts": [], "ts": []}
@@ -644,7 +719,9 @@ class LocalStore:
 
     # -------------------------------------------------------------- users
 
-    def upsert_user(self, github_id: int, login: str, name: str | None, avatar_url: str | None) -> dict[str, Any]:
+    def upsert_user(
+        self, github_id: int, login: str, name: str | None, avatar_url: str | None
+    ) -> dict[str, Any]:
         """Create-or-refresh a user from a GitHub profile; api_key is minted once on create."""
         with self._lock:
             self._db.execute(
@@ -652,26 +729,41 @@ class LocalStore:
                 " VALUES (?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT(github_id) DO UPDATE SET"
                 "   login = excluded.login, name = excluded.name, avatar_url = excluded.avatar_url",
-                (github_id, login, name, avatar_url, secrets.token_urlsafe(32), time.time()),
+                (
+                    github_id,
+                    login,
+                    name,
+                    avatar_url,
+                    secrets.token_urlsafe(32),
+                    time.time(),
+                ),
             )
             self._db.commit()
-            row = self._db.execute("SELECT * FROM users WHERE github_id = ?", (github_id,)).fetchone()
+            row = self._db.execute(
+                "SELECT * FROM users WHERE github_id = ?", (github_id,)
+            ).fetchone()
         return dict(row)
 
     def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
         with self._lock:
-            row = self._db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            row = self._db.execute(
+                "SELECT * FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
         return dict(row) if row else None
 
     def get_user_by_api_key(self, api_key: str) -> dict[str, Any] | None:
         with self._lock:
-            row = self._db.execute("SELECT * FROM users WHERE api_key = ?", (api_key,)).fetchone()
+            row = self._db.execute(
+                "SELECT * FROM users WHERE api_key = ?", (api_key,)
+            ).fetchone()
         return dict(row) if row else None
 
     def rotate_api_key(self, user_id: int) -> str:
         key = secrets.token_urlsafe(32)
         with self._lock:
-            self._db.execute("UPDATE users SET api_key = ? WHERE id = ?", (key, user_id))
+            self._db.execute(
+                "UPDATE users SET api_key = ? WHERE id = ?", (key, user_id)
+            )
             self._db.commit()
         return key
 
@@ -679,13 +771,16 @@ class LocalStore:
     # Synced batches carry the client-local rowid per row ("seq"); rows at or
     # below the stored watermark are replays of an already-committed push.
 
-    def log_metrics_seq(self, run_id: str, rows: list[tuple[str, int, float, float, int]]) -> int:
+    def log_metrics_seq(
+        self, run_id: str, rows: list[tuple[str, int, float, float, int]]
+    ) -> int:
         """rows: [(key, step, value, ts, seq), ...] — returns how many were fresh."""
         if not rows:
             return 0
         with self._lock:
             row = self._db.execute(
-                "SELECT last_metrics_rowid FROM sync_progress WHERE run_id = ?", (run_id,)
+                "SELECT last_metrics_rowid FROM sync_progress WHERE run_id = ?",
+                (run_id,),
             ).fetchone()
             last = row["last_metrics_rowid"] if row else 0
             fresh = [r for r in rows if r[4] > last]
@@ -714,14 +809,18 @@ class LocalStore:
             return 0
         with self._lock:
             row = self._db.execute(
-                "SELECT last_histograms_rowid FROM sync_progress WHERE run_id = ?", (run_id,)
+                "SELECT last_histograms_rowid FROM sync_progress WHERE run_id = ?",
+                (run_id,),
             ).fetchone()
             last = row["last_histograms_rowid"] if row else 0
             fresh = [r for r in rows if r[5] > last]
             if fresh:
                 self._db.executemany(
                     "INSERT INTO histograms (run_id, key, step, bins, counts, ts) VALUES (?, ?, ?, ?, ?, ?)",
-                    [(run_id, k, s, json.dumps(list(b)), json.dumps(list(c)), t) for k, s, b, c, t, _ in fresh],
+                    [
+                        (run_id, k, s, json.dumps(list(b)), json.dumps(list(c)), t)
+                        for k, s, b, c, t, _ in fresh
+                    ],
                 )
                 self._db.execute(
                     "INSERT INTO sync_progress (run_id, last_histograms_rowid) VALUES (?, ?)"
@@ -729,7 +828,8 @@ class LocalStore:
                     (run_id, max(r[5] for r in fresh)),
                 )
                 self._db.execute(
-                    "UPDATE runs SET updated_at = ? WHERE id = ?", (max(r[4] for r in fresh), run_id)
+                    "UPDATE runs SET updated_at = ? WHERE id = ?",
+                    (max(r[4] for r in fresh), run_id),
                 )
             self._db.commit()
         return len(fresh)
@@ -756,12 +856,16 @@ class LocalStore:
     def ensure_sync_state(self, run_id: str) -> None:
         """Mark a run as cloud-tracked (no-op if already tracked)."""
         with self._lock:
-            self._db.execute("INSERT OR IGNORE INTO sync_state (run_id) VALUES (?)", (run_id,))
+            self._db.execute(
+                "INSERT OR IGNORE INTO sync_state (run_id) VALUES (?)", (run_id,)
+            )
             self._db.commit()
 
     def get_sync_state(self, run_id: str) -> dict[str, Any] | None:
         with self._lock:
-            row = self._db.execute("SELECT * FROM sync_state WHERE run_id = ?", (run_id,)).fetchone()
+            row = self._db.execute(
+                "SELECT * FROM sync_state WHERE run_id = ?", (run_id,)
+            ).fetchone()
         return dict(row) if row else None
 
     def advance_sync_cursor(
@@ -788,7 +892,10 @@ class LocalStore:
         if not sets:
             return
         with self._lock:
-            self._db.execute(f"UPDATE sync_state SET {', '.join(sets)} WHERE run_id = ?", (*params, run_id))
+            self._db.execute(
+                f"UPDATE sync_state SET {', '.join(sets)} WHERE run_id = ?",
+                (*params, run_id),
+            )
             self._db.commit()
 
     def claim_sync_lease(self, run_id: str, owner: str, ttl: float = 60.0) -> bool:
@@ -812,7 +919,9 @@ class LocalStore:
             )
             self._db.commit()
 
-    def unsynced_metrics(self, run_id: str, after_rowid: int, limit: int = 1000) -> list[dict[str, Any]]:
+    def unsynced_metrics(
+        self, run_id: str, after_rowid: int, limit: int = 1000
+    ) -> list[dict[str, Any]]:
         """Committed metric rows past the cursor, oldest first, with their local rowid as seq."""
         with self._lock:
             rows = self._db.execute(
@@ -822,7 +931,9 @@ class LocalStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def unsynced_media(self, run_id: str, after_id: int, limit: int = 100) -> list[dict[str, Any]]:
+    def unsynced_media(
+        self, run_id: str, after_id: int, limit: int = 100
+    ) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._db.execute(
                 "SELECT id, key, step, filename, caption, ts FROM media"
@@ -831,7 +942,9 @@ class LocalStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def unsynced_histograms(self, run_id: str, after_rowid: int, limit: int = 200) -> list[dict[str, Any]]:
+    def unsynced_histograms(
+        self, run_id: str, after_rowid: int, limit: int = 200
+    ) -> list[dict[str, Any]]:
         """Committed histogram rows past the cursor, oldest first, bins/counts parsed."""
         with self._lock:
             rows = self._db.execute(

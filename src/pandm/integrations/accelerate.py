@@ -28,7 +28,10 @@ import os
 from typing import Any
 
 try:
-    from accelerate.tracking import GeneralTracker, on_main_process  # pyright: ignore[reportMissingImports] -- optional dependency
+    from accelerate.tracking import (  # pyright: ignore[reportMissingImports] -- optional dependency
+        GeneralTracker,
+        on_main_process,
+    )
 except ImportError as e:  # pragma: no cover
     raise ImportError(
         "pandm.integrations.accelerate requires the `accelerate` package: pip install accelerate"
@@ -86,7 +89,9 @@ class PandmTracker(GeneralTracker):
         """Fold `values` into the run config and create the run."""
         if self._run is not None:
             # the run config is written at creation; too late to amend it
-            logger.warning("pandm run already started — ignoring late config keys %s", list(values))
+            logger.warning(
+                "pandm run already started — ignoring late config keys %s", list(values)
+            )
             return
         self._config.update(values)
         self._ensure_run()

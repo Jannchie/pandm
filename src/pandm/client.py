@@ -48,17 +48,30 @@ class RemoteBackend:
         timeout: float | None = None,
     ):
         headers = {"x-api-key": api_key} if api_key else {}
-        self._timeout = timeout if timeout is not None else _env_float("PANDM_SYNC_TIMEOUT", _DEFAULT_TIMEOUT)
+        self._timeout = (
+            timeout
+            if timeout is not None
+            else _env_float("PANDM_SYNC_TIMEOUT", _DEFAULT_TIMEOUT)
+        )
         self._client = httpx.Client(
-            base_url=base_url.rstrip("/"), timeout=self._timeout, headers=headers, transport=transport
+            base_url=base_url.rstrip("/"),
+            timeout=self._timeout,
+            headers=headers,
+            transport=transport,
         )
         self._down_until = 0.0
-        self._deadline: float | None = None  # set by deadline(): a wall-clock cap on a burst of calls
+        self._deadline: float | None = (
+            None  # set by deadline(): a wall-clock cap on a burst of calls
+        )
         self._warned = False
         self._created = False
         self._create_payload: dict[str, Any] | None = None
-        self._summary: dict[str, Any] = {}  # author scalars, sent with finish (§ no separate endpoint)
-        self._metric_meta: dict[str, Any] = {}  # per-metric display specs, also sent with finish
+        self._summary: dict[
+            str, Any
+        ] = {}  # author scalars, sent with finish (§ no separate endpoint)
+        self._metric_meta: dict[
+            str, Any
+        ] = {}  # per-metric display specs, also sent with finish
 
     @contextlib.contextmanager
     def deadline(self, budget: float) -> Iterator[None]:
@@ -85,7 +98,9 @@ class RemoteBackend:
             if left is not None:
                 if left <= 0:
                     break  # budget spent — fail fast rather than block the caller
-                kwargs["timeout"] = min(self._timeout, left)  # shrink the read timeout to fit
+                kwargs["timeout"] = min(
+                    self._timeout, left
+                )  # shrink the read timeout to fit
             try:
                 resp = self._client.request(method, url, **kwargs)
                 resp.raise_for_status()
@@ -97,7 +112,9 @@ class RemoteBackend:
                     break
                 backoff = 0.3 * (attempt + 1)
                 time.sleep(backoff if left is None else min(backoff, left))
-        if last_exc is not None:  # a tripped deadline that never reached the wire isn't an outage
+        if (
+            last_exc is not None
+        ):  # a tripped deadline that never reached the wire isn't an outage
             self._down_until = time.monotonic() + _COOLDOWN
             if not self._warned:
                 self._warned = True
@@ -164,7 +181,10 @@ class RemoteBackend:
             return False
         timeout = self._timeout if left is None else min(self._timeout, left)
         try:
-            return self._client.get(f"/api/runs/{run_id}", timeout=timeout).status_code == 200
+            return (
+                self._client.get(f"/api/runs/{run_id}", timeout=timeout).status_code
+                == 200
+            )
         except Exception:  # noqa: BLE001 — unreachable -> treat as absent, caller starts fresh
             return False
 
@@ -184,7 +204,10 @@ class RemoteBackend:
             if len(row) > 4:
                 item["seq"] = row[4]
             payload.append(item)
-        return self._request("POST", f"/api/runs/{run_id}/metrics", json={"rows": payload}) is not None
+        return (
+            self._request("POST", f"/api/runs/{run_id}/metrics", json={"rows": payload})
+            is not None
+        )
 
     def log_media(
         self,
@@ -222,23 +245,39 @@ class RemoteBackend:
     ) -> bool:
         if not self._ensure_created():
             return False
-        row: dict[str, Any] = {"key": key, "step": step, "bins": list(bins), "counts": list(counts), "ts": ts}
+        row: dict[str, Any] = {
+            "key": key,
+            "step": step,
+            "bins": list(bins),
+            "counts": list(counts),
+            "ts": ts,
+        }
         if hist_seq is not None:  # idempotent re-push from the sync cursor
             row["seq"] = hist_seq
-        return self._request("POST", f"/api/runs/{run_id}/histograms", json={"rows": [row]}) is not None
+        return (
+            self._request(
+                "POST", f"/api/runs/{run_id}/histograms", json={"rows": [row]}
+            )
+            is not None
+        )
 
     def heartbeat(self, run_id: str, ts: float) -> bool:
         if not self._ensure_created():
             return False
         return self._request("POST", f"/api/runs/{run_id}/heartbeat") is not None
 
-    def update_progress(self, run_id: str, current: float, total: float | None, ts: float) -> bool:
+    def update_progress(
+        self, run_id: str, current: float, total: float | None, ts: float
+    ) -> bool:
         if not self._ensure_created():
             return False
         payload: dict[str, Any] = {"current": current, "ts": ts}
         if total is not None:
             payload["total"] = total
-        return self._request("POST", f"/api/runs/{run_id}/progress", json=payload) is not None
+        return (
+            self._request("POST", f"/api/runs/{run_id}/progress", json=payload)
+            is not None
+        )
 
     def set_summary(self, run_id: str, values: dict[str, Any]) -> bool:
         """Stash author scalars in memory; they ride along with finish_run so the
@@ -253,7 +292,12 @@ class RemoteBackend:
         self._metric_meta.update(specs)
         if not self._ensure_created():
             return False
-        return self._request("POST", f"/api/runs/{run_id}/meta", json={"metric_meta": specs}) is not None
+        return (
+            self._request(
+                "POST", f"/api/runs/{run_id}/meta", json={"metric_meta": specs}
+            )
+            is not None
+        )
 
     def finish_run(
         self,

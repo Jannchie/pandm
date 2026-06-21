@@ -18,9 +18,14 @@ def store_dir(tmp_path):
     """Three finished runs with a clear val/acc ranking c > b > a."""
     data_dir = tmp_path / ".pandm"
     for i, (lr, name) in enumerate([(0.01, "a"), (0.1, "b"), (0.001, "c")]):
-        run = pandm.init(project="mnist", name=name, config={"lr": lr}, directory=data_dir)
+        run = pandm.init(
+            project="mnist", name=name, config={"lr": lr}, directory=data_dir
+        )
         for step in range(5):
-            run.log({"val/acc": 0.5 + 0.1 * i + 0.01 * step, "loss": 1.0 - 0.1 * i}, step=step)
+            run.log(
+                {"val/acc": 0.5 + 0.1 * i + 0.01 * step, "loss": 1.0 - 0.1 * i},
+                step=step,
+            )
         run.summary({"best_acc": round(0.5 + 0.1 * i + 0.04, 3)})
         run.finish()
     return data_dir
@@ -42,7 +47,9 @@ def test_ls_json_carries_config_and_stats(store_dir):
 
 
 def test_ls_status_filter(store_dir):
-    assert len(_json(["ls", "-d", str(store_dir), "--status", "finished", "--json"])) == 3
+    assert (
+        len(_json(["ls", "-d", str(store_dir), "--status", "finished", "--json"])) == 3
+    )
     assert _json(["ls", "-d", str(store_dir), "--status", "running", "--json"]) == []
 
 
@@ -52,12 +59,26 @@ def test_ls_sort_by_metric_best_first(store_dir):
 
 
 def test_ls_sort_ascending_and_limit(store_dir):
-    runs = _json(["ls", "-d", str(store_dir), "--sort-by", "val/acc", "--asc", "--limit", "1", "--json"])
+    runs = _json(
+        [
+            "ls",
+            "-d",
+            str(store_dir),
+            "--sort-by",
+            "val/acc",
+            "--asc",
+            "--limit",
+            "1",
+            "--json",
+        ]
+    )
     assert [r["name"] for r in runs] == ["a"]
 
 
 def test_ls_sort_bad_aggregate_errors(store_dir):
-    result = runner.invoke(app, ["ls", "-d", str(store_dir), "--sort-by", "val/acc:avg", "--json"])
+    result = runner.invoke(
+        app, ["ls", "-d", str(store_dir), "--sort-by", "val/acc:avg", "--json"]
+    )
     assert result.exit_code == 2
 
 
@@ -69,7 +90,11 @@ def test_show_json_has_metric_keys_and_media(store_dir):
 
 
 def test_compare_json_aligns_values_to_runs(store_dir):
-    ids = [r["id"] for r in _json(["ls", "-d", str(store_dir), "--json"]) if r["name"] in ("a", "c")]
+    ids = [
+        r["id"]
+        for r in _json(["ls", "-d", str(store_dir), "--json"])
+        if r["name"] in ("a", "c")
+    ]
     cmp = _json(["compare", "-d", str(store_dir), *ids, "--json"])
     order = [r["name"] for r in cmp["runs"]]
     lrs = dict(zip(order, cmp["config"]["lr"]))
@@ -77,7 +102,9 @@ def test_compare_json_aligns_values_to_runs(store_dir):
 
 
 def test_compare_missing_run_exits_nonzero(store_dir):
-    result = runner.invoke(app, ["compare", "-d", str(store_dir), "nope1", "nope2", "--json"])
+    result = runner.invoke(
+        app, ["compare", "-d", str(store_dir), "nope1", "nope2", "--json"]
+    )
     assert result.exit_code == 1
 
 

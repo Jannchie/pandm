@@ -44,7 +44,9 @@ def _coerce_config(config: Any) -> dict[str, Any]:
         return dict(config)
     if dataclasses.is_dataclass(config) and not isinstance(config, type):
         return dataclasses.asdict(config)
-    model_dump = getattr(config, "model_dump", None)  # pydantic v2 — keeps nested models as dicts
+    model_dump = getattr(
+        config, "model_dump", None
+    )  # pydantic v2 — keeps nested models as dicts
     if callable(model_dump):
         try:
             dumped = model_dump()
@@ -52,7 +54,9 @@ def _coerce_config(config: Any) -> dict[str, Any]:
                 return dumped
         except Exception:  # noqa: BLE001 — fall through to the attribute scrape
             pass
-    if hasattr(config, "__dict__"):  # argparse.Namespace, pydantic v1, plain config objects
+    if hasattr(
+        config, "__dict__"
+    ):  # argparse.Namespace, pydantic v1, plain config objects
         return {k: v for k, v in vars(config).items() if not k.startswith("_")}
     raise TypeError(
         f"config must be a dict, Mapping, dataclass, Namespace, or attribute object — got {type(config).__name__}"
@@ -72,6 +76,7 @@ def _print_run_banner(run: "Run", resolved: Any) -> None:
     else:
         loc = "local ./.pandm  ·  `pandm ui` to view"
     print(f'pandm: run "{run.name}" [{run.id}] -> {loc}', file=sys.stderr)
+
 
 _FLUSH_INTERVAL = 0.5
 _FLUSH_THRESHOLD = 256
@@ -115,7 +120,9 @@ def _is_interactive() -> bool:
     return bool(sys.stdin) and sys.stdin.isatty() and sys.stderr.isatty()
 
 
-def _maybe_offer_login(resolved: Any, remote: str | bool | None, api_key: str | None) -> Any:
+def _maybe_offer_login(
+    resolved: Any, remote: str | bool | None, api_key: str | None
+) -> Any:
     """A run is about to go local-only. Unless the user has opted out, offer to
     sign in: an interactive terminal gets a prompt (and, if they choose, an inline
     login that upgrades *this* run to dual-write); a non-interactive one gets a
@@ -148,7 +155,10 @@ def _maybe_offer_login(resolved: Any, remote: str | bool | None, api_key: str | 
         return resolved
 
     try:
-        print("\npandm: you're not logged in; this run will be saved locally only.", file=sys.stderr)
+        print(
+            "\npandm: you're not logged in; this run will be saved locally only.",
+            file=sys.stderr,
+        )
         print(
             "  [l] log in and sync to the cloud   "
             "[k] keep local, don't ask again   "
@@ -237,9 +247,16 @@ def init(
     else:
         backend = LocalStore(resolve_dir(directory))
     run = Run(
-        backend, project=project, name=name, config=config,
-        description=description, total_steps=total_steps, run_id=id, resume=resume,
-        tags=tags, group=group,
+        backend,
+        project=project,
+        name=name,
+        config=config,
+        description=description,
+        total_steps=total_steps,
+        run_id=id,
+        resume=resume,
+        tags=tags,
+        group=group,
     )
     _active_runs.append(run)
     _register_atexit()
@@ -252,16 +269,24 @@ def log(metrics: dict[str, Any], step: int | None = None) -> None:
     _current().log(metrics, step=step)
 
 
-def log_image(key: str, image: Any, step: int | None = None, caption: str | None = None) -> None:
+def log_image(
+    key: str, image: Any, step: int | None = None, caption: str | None = None
+) -> None:
     """Log an image to the most recently started run."""
     _current().log_image(key, image, step=step, caption=caption)
 
 
 def log_histogram(
-    key: str, samples: Any, step: int | None = None, bins: int = 30, description: str | None = None,
+    key: str,
+    samples: Any,
+    step: int | None = None,
+    bins: int = 30,
+    description: str | None = None,
 ) -> None:
     """Log a distribution snapshot to the most recently started run (mirrors run.log_histogram)."""
-    _current().log_histogram(key, samples, step=step, bins=bins, description=description)
+    _current().log_histogram(
+        key, samples, step=step, bins=bins, description=description
+    )
 
 
 def set_progress(current: float, total: float | None = None) -> None:
@@ -337,13 +362,20 @@ class Run:
         if mode == "must" and not existed:
             raise ValueError(f"resume='must' but run {self.id!r} was not found")
         backend.create_run(
-            self.id, project, self.name, self.config,
-            description=self.description, tags=self.tags, group=self.group,
+            self.id,
+            project,
+            self.name,
+            self.config,
+            description=self.description,
+            tags=self.tags,
+            group=self.group,
         )
         if existed and mode:
             self._step = int(backend.resume_run(self.id)) + 1
         self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._flush_loop, daemon=True, name=f"pandm-{self.id}")
+        self._thread = threading.Thread(
+            target=self._flush_loop, daemon=True, name=f"pandm-{self.id}"
+        )
         self._thread.start()
 
     # ----------------------------------------------------------- logging
@@ -365,7 +397,9 @@ class Run:
         ]
         with self._buf_lock:
             self._buffer.extend(rows)
-            if self._progress_total is not None:  # total declared -> progress follows the step
+            if (
+                self._progress_total is not None
+            ):  # total declared -> progress follows the step
                 self._progress_current = step + 1  # steps completed through this one
                 self._progress_dirty = True
             should_flush = len(self._buffer) >= _FLUSH_THRESHOLD
@@ -470,7 +504,9 @@ class Run:
             spec["band"] = True
         if kind is not None:
             if kind not in ("line", "bar", "scatter"):
-                raise ValueError(f"kind must be 'line', 'bar', or 'scatter', got {kind!r}")
+                raise ValueError(
+                    f"kind must be 'line', 'bar', or 'scatter', got {kind!r}"
+                )
             if kind != "line":  # the default is implicit — keep metric_meta minimal
                 spec["kind"] = kind
         if not spec:
@@ -481,7 +517,13 @@ class Run:
             pass
 
     def log_histogram(
-        self, key: str, samples: Any, *, step: int | None = None, bins: int = 30, description: str | None = None,
+        self,
+        key: str,
+        samples: Any,
+        *,
+        step: int | None = None,
+        bins: int = 30,
+        description: str | None = None,
     ) -> None:
         """Log a distribution snapshot — the shape of `samples`, not just its mean.
 
@@ -508,9 +550,13 @@ class Run:
         if not edges:  # empty / all-non-finite sample set — nothing to store
             return
         self._flush()  # keep metric/histogram ordering roughly consistent
-        self._backend.log_histogram(self.id, str(key), int(step), edges, counts, time.time())
+        self._backend.log_histogram(
+            self.id, str(key), int(step), edges, counts, time.time()
+        )
 
-    def log_image(self, key: str, image: Any, step: int | None = None, caption: str | None = None) -> None:
+    def log_image(
+        self, key: str, image: Any, step: int | None = None, caption: str | None = None
+    ) -> None:
         """Log an image: PIL Image, numpy/torch array (HWC or CHW), file path, or raw bytes."""
         if self._finished:
             raise RuntimeError(f"run {self.id} is already finished")
@@ -518,7 +564,9 @@ class Run:
             step = max(0, self._step - 1)  # align with the latest metric step
         data, ext = _encode_image(image)
         self._flush()  # keep metric/media ordering roughly consistent
-        self._backend.log_media(self.id, str(key), int(step), data, ext, caption, time.time())
+        self._backend.log_media(
+            self.id, str(key), int(step), data, ext, caption, time.time()
+        )
 
     def finish(self, status: str = "finished") -> None:
         if self._finished:
@@ -637,11 +685,17 @@ def _encode_image(image: Any) -> tuple[bytes, str]:
     if hasattr(image, "detach"):  # torch tensor -> numpy, without importing torch
         image = image.detach().cpu().numpy()
 
-    if hasattr(image, "__array_interface__") or type(image).__module__.startswith("numpy"):
+    if hasattr(image, "__array_interface__") or type(image).__module__.startswith(
+        "numpy"
+    ):
         import numpy as np  # pyright: ignore[reportMissingImports] -- present whenever the user passes an ndarray
 
         arr = np.asarray(image)
-        if arr.ndim == 3 and arr.shape[0] in (1, 3, 4) and arr.shape[2] not in (1, 3, 4):
+        if (
+            arr.ndim == 3
+            and arr.shape[0] in (1, 3, 4)
+            and arr.shape[2] not in (1, 3, 4)
+        ):
             arr = arr.transpose(1, 2, 0)  # CHW -> HWC
         if arr.ndim == 3 and arr.shape[2] == 1:
             arr = arr[:, :, 0]

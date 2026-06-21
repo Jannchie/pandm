@@ -19,7 +19,9 @@ export function runColor(runId: string): string {
   let color = assigned.get(runId)
   if (!color) {
     const used = new Set(assigned.values())
-    color = PALETTE.find((c) => !used.has(c)) ?? PALETTE[assigned.size % PALETTE.length]
+    color =
+      PALETTE.find((c) => !used.has(c)) ??
+      PALETTE[assigned.size % PALETTE.length]
     assigned.set(runId, color)
   }
   return color

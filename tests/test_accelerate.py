@@ -54,7 +54,9 @@ def tracker_module(monkeypatch):
 
 
 def test_lazy_init_merges_config(tracker_module, data_dir):
-    tracker = tracker_module.PandmTracker(project="proj", name="acc", config={"seed": 1}, directory=data_dir)
+    tracker = tracker_module.PandmTracker(
+        project="proj", name="acc", config={"seed": 1}, directory=data_dir
+    )
     assert LocalStore(data_dir).list_runs("proj") == []  # no run until first callback
 
     tracker.store_init_configuration({"lr": 0.1})
@@ -100,7 +102,9 @@ def test_tracker_property_unwraps_run(tracker_module, data_dir):
 
 def test_image_list_fans_out(tracker_module, data_dir):
     tracker = tracker_module.PandmTracker(project="proj", directory=data_dir)
-    tracker.log_images({"grid": [Image.new("RGB", (4, 4)), Image.new("RGB", (4, 4))]}, step=1)
+    tracker.log_images(
+        {"grid": [Image.new("RGB", (4, 4)), Image.new("RGB", (4, 4))]}, step=1
+    )
     tracker.finish()
     runs = LocalStore(data_dir).list_runs("proj")
     assert len(LocalStore(data_dir).list_media(runs[0]["id"])) == 2
@@ -111,7 +115,9 @@ def test_real_accelerate_end_to_end(data_dir):
     sys.modules.pop("pandm.integrations.accelerate", None)
     tracker_module = importlib.import_module("pandm.integrations.accelerate")
 
-    tracker = tracker_module.PandmTracker(project="proj", name="real", directory=data_dir)
+    tracker = tracker_module.PandmTracker(
+        project="proj", name="real", directory=data_dir
+    )
     accelerator = accelerate.Accelerator(log_with=tracker)
     accelerator.init_trackers("ignored-project-name", config={"lr": 0.1})
     accelerator.log({"loss": 1.0}, step=0)

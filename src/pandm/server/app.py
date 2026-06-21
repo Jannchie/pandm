@@ -14,7 +14,16 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -69,17 +78,25 @@ class ProgressIn(BaseModel):
 
 
 class MetaIn(BaseModel):
-    metric_meta: dict[str, Any]  # per-metric display specs (run.define_metric), merged in
+    metric_meta: dict[
+        str, Any
+    ]  # per-metric display specs (run.define_metric), merged in
 
 
 class FinishIn(BaseModel):
     status: str = "finished"
     finished_at: float | None = None
-    summary: dict[str, Any] | None = None  # author scalars, sent with the run's terminal state
-    metric_meta: dict[str, Any] | None = None  # per-metric display specs (run.define_metric)
+    summary: dict[str, Any] | None = (
+        None  # author scalars, sent with the run's terminal state
+    )
+    metric_meta: dict[str, Any] | None = (
+        None  # per-metric display specs (run.define_metric)
+    )
 
 
-def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = None) -> FastAPI:
+def create_app(
+    data_dir: str | os.PathLike | None = None, api_key: str | None = None
+) -> FastAPI:
     root = resolve_dir(data_dir)
     store = LocalStore(root)
     app = FastAPI(title="pandm", docs_url="/api/docs", openapi_url="/api/openapi.json")
@@ -129,18 +146,24 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
         return store.list_projects(user_id=user["id"] if user else None)
 
     @app.get("/api/runs")
-    def runs(project: str | None = None, user: dict | None = Depends(current_user)) -> list[dict[str, Any]]:
+    def runs(
+        project: str | None = None, user: dict | None = Depends(current_user)
+    ) -> list[dict[str, Any]]:
         return store.list_runs(project, user_id=user["id"] if user else None)
 
     @app.get("/api/runs/{run_id}")
-    def run_detail(run_id: str, user: dict | None = Depends(current_user)) -> dict[str, Any]:
+    def run_detail(
+        run_id: str, user: dict | None = Depends(current_user)
+    ) -> dict[str, Any]:
         run = store.get_run(run_id, user_id=user["id"] if user else None)
         if run is None:
             raise HTTPException(status_code=404, detail="run not found")
         return run
 
     @app.get("/api/runs/{run_id}/metrics")
-    def run_metric_keys(run_id: str, user: dict | None = Depends(current_user)) -> list[dict[str, Any]]:
+    def run_metric_keys(
+        run_id: str, user: dict | None = Depends(current_user)
+    ) -> list[dict[str, Any]]:
         check_owner(run_id, user)
         return store.metric_keys(run_id)
 
@@ -153,16 +176,23 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
         user: dict | None = Depends(current_user),
     ) -> dict[str, list]:
         check_owner(run_id, user)
-        return store.metric_series(run_id, key, max_points=max_points, after_step=after_step)
+        return store.metric_series(
+            run_id, key, max_points=max_points, after_step=after_step
+        )
 
     @app.get("/api/runs/{run_id}/histograms")
-    def run_histogram_keys(run_id: str, user: dict | None = Depends(current_user)) -> list[dict[str, Any]]:
+    def run_histogram_keys(
+        run_id: str, user: dict | None = Depends(current_user)
+    ) -> list[dict[str, Any]]:
         check_owner(run_id, user)
         return store.histogram_keys(run_id)
 
     @app.get("/api/runs/{run_id}/histograms/{key:path}")
     def run_histogram_series(
-        run_id: str, key: str, max_steps: int = 200, user: dict | None = Depends(current_user)
+        run_id: str,
+        key: str,
+        max_steps: int = 200,
+        user: dict | None = Depends(current_user),
     ) -> dict[str, list]:
         check_owner(run_id, user)
         return store.histogram_series(run_id, key, max_steps=max_steps)
@@ -178,7 +208,9 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
         return items
 
     @app.get("/api/media/{run_id}/{filename}")
-    def media_file(run_id: str, filename: str, user: dict | None = Depends(current_user)):
+    def media_file(
+        run_id: str, filename: str, user: dict | None = Depends(current_user)
+    ):
         check_owner(run_id, user)
         path = store.media_path(run_id, filename)
         if path is None:
@@ -189,12 +221,20 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
     # ------------------------------------------------------- ingest API
 
     @app.post("/api/runs")
-    def create_run(body: RunIn, user: dict | None = Depends(require_key)) -> dict[str, Any]:
+    def create_run(
+        body: RunIn, user: dict | None = Depends(require_key)
+    ) -> dict[str, Any]:
         run_id = body.id or new_run_id()
         store.create_run(
-            run_id, body.project, body.name, body.config, body.created_at,
-            user_id=user["id"] if user else None, description=body.description,
-            tags=body.tags, group=body.group,
+            run_id,
+            body.project,
+            body.name,
+            body.config,
+            body.created_at,
+            user_id=user["id"] if user else None,
+            description=body.description,
+            tags=body.tags,
+            group=body.group,
         )
         return {"id": run_id}
 
@@ -205,10 +245,13 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
         check_owner(run_id, user)
         if body.rows and all(r.seq is not None for r in body.rows):
             inserted = store.log_metrics_seq(
-                run_id, [(r.key, r.step, r.value, r.ts, r.seq) for r in body.rows]  # type: ignore[misc]
+                run_id,
+                [(r.key, r.step, r.value, r.ts, r.seq) for r in body.rows],  # type: ignore[misc]
             )
         else:
-            store.log_metrics(run_id, [(r.key, r.step, r.value, r.ts) for r in body.rows])
+            store.log_metrics(
+                run_id, [(r.key, r.step, r.value, r.ts) for r in body.rows]
+            )
             inserted = len(body.rows)
         return {"inserted": inserted}
 
@@ -241,15 +284,26 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
     ) -> dict[str, Any]:
         check_owner(run_id, user)
         if media_seq is not None and not store.claim_media_seq(run_id, media_seq):
-            return {"filename": None, "skipped": True}  # replay of an already-ingested upload
+            return {
+                "filename": None,
+                "skipped": True,
+            }  # replay of an already-ingested upload
         ext = Path(file.filename or "upload.png").suffix.lower() or ".png"
         filename = store.log_media(
-            run_id, key, step, file.file.read(), ext, caption or None, ts if ts is not None else time.time()
+            run_id,
+            key,
+            step,
+            file.file.read(),
+            ext,
+            caption or None,
+            ts if ts is not None else time.time(),
         )
         return {"filename": filename}
 
     @app.post("/api/runs/{run_id}/heartbeat")
-    def run_heartbeat(run_id: str, user: dict | None = Depends(require_key)) -> dict[str, bool]:
+    def run_heartbeat(
+        run_id: str, user: dict | None = Depends(require_key)
+    ) -> dict[str, bool]:
         check_owner(run_id, user)
         store.heartbeat(run_id)  # server clock — immune to client clock skew
         return {"ok": True}
@@ -263,13 +317,19 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
         return {"ok": True}
 
     @app.post("/api/runs/{run_id}/meta")
-    def run_meta(run_id: str, body: MetaIn, user: dict | None = Depends(require_key)) -> dict[str, bool]:
+    def run_meta(
+        run_id: str, body: MetaIn, user: dict | None = Depends(require_key)
+    ) -> dict[str, bool]:
         check_owner(run_id, user)
-        store.set_metric_meta(run_id, body.metric_meta)  # merges, last write wins per key
+        store.set_metric_meta(
+            run_id, body.metric_meta
+        )  # merges, last write wins per key
         return {"ok": True}
 
     @app.post("/api/runs/{run_id}/finish")
-    def finish_run(run_id: str, body: FinishIn, user: dict | None = Depends(require_key)) -> dict[str, str]:
+    def finish_run(
+        run_id: str, body: FinishIn, user: dict | None = Depends(require_key)
+    ) -> dict[str, str]:
         check_owner(run_id, user)
         if body.summary:
             store.set_summary(run_id, body.summary)
@@ -279,18 +339,24 @@ def create_app(data_dir: str | os.PathLike | None = None, api_key: str | None = 
         return {"status": body.status}
 
     @app.post("/api/runs/{run_id}/resume")
-    def resume_run(run_id: str, user: dict | None = Depends(require_key)) -> dict[str, int]:
+    def resume_run(
+        run_id: str, user: dict | None = Depends(require_key)
+    ) -> dict[str, int]:
         check_owner(run_id, user)
         return {"max_step": store.resume_run(run_id)}
 
     @app.delete("/api/runs/{run_id}")
-    def delete_run(run_id: str, user: dict | None = Depends(require_key)) -> dict[str, bool]:
+    def delete_run(
+        run_id: str, user: dict | None = Depends(require_key)
+    ) -> dict[str, bool]:
         check_owner(run_id, user)
         store.delete_run(run_id)
         return {"deleted": True}
 
     @app.delete("/api/projects/{project:path}")
-    def delete_project(project: str, user: dict | None = Depends(require_key)) -> dict[str, bool]:
+    def delete_project(
+        project: str, user: dict | None = Depends(require_key)
+    ) -> dict[str, bool]:
         store.delete_project(project, user_id=user["id"] if user else None)
         return {"deleted": True}
 

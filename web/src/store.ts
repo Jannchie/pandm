@@ -5,7 +5,12 @@ import { clearEta } from './eta'
 export const state = reactive({
   auth: {
     mode: 'loading' as 'loading' | 'local' | 'anon' | 'user',
-    user: null as null | { login: string; name: string | null; avatar_url: string | null; api_key: string },
+    user: null as null | {
+      login: string
+      name: string | null
+      avatar_url: string | null
+      api_key: string
+    },
   },
   cliCode: null as string | null, // pending `pandm login` approval code (?cli=)
   ready: false,
@@ -31,9 +36,12 @@ export const state = reactive({
 
 // the shared zoom's units differ per x-axis mode (step vs ms vs elapsed seconds),
 // so switching mode invalidates any active zoom
-watch(() => state.xAxis, () => {
-  state.xRange = null
-})
+watch(
+  () => state.xAxis,
+  () => {
+    state.xRange = null
+  },
+)
 
 export const visibleRuns = computed(() => {
   const q = state.search.trim().toLowerCase()
@@ -48,7 +56,9 @@ export const visibleRuns = computed(() => {
   )
 })
 
-export const selectedRuns = computed(() => state.runs.filter((r) => state.selected.includes(r.id)))
+export const selectedRuns = computed(() =>
+  state.runs.filter((r) => state.selected.includes(r.id)),
+)
 
 // --------------------------------------------------------------- chart model
 // A chart is no longer 1:1 with a metric key. define_metric(panel=...) groups
@@ -89,17 +99,23 @@ export function metricSpec(key: string): api.MetricSpec | null {
 
 // the leading selected run for a spec'd metric, by its declared goal direction —
 // drives the "★ best" badge. Compares the latest logged value (stats[key].last).
-export function bestRunFor(key: string, goal: 'max' | 'min'): { run: api.Run; value: number } | null {
+export function bestRunFor(
+  key: string,
+  goal: 'max' | 'min',
+): { run: api.Run; value: number } | null {
   let best: { run: api.Run; value: number } | null = null
   for (const r of selectedRuns.value) {
     const v = r.stats?.[key]?.last
     if (v === null || v === undefined) continue
-    if (!best || (goal === 'max' ? v > best.value : v < best.value)) best = { run: r, value: v }
+    if (!best || (goal === 'max' ? v > best.value : v < best.value))
+      best = { run: r, value: v }
   }
   return best
 }
 
-export const anyRunning = computed(() => selectedRuns.value.some((r) => r.status === 'running'))
+export const anyRunning = computed(() =>
+  selectedRuns.value.some((r) => r.status === 'running'),
+)
 
 // plain click = single-select (show only this run); ctrl/cmd-click = toggle into
 // the current selection for side-by-side comparison
@@ -152,7 +168,10 @@ export async function refresh() {
   // response for the old project can't clobber the new project's runs.
   const myEpoch = ++refreshEpoch
   try {
-    const [projects, runs] = await Promise.all([api.fetchProjects(), api.fetchRuns(state.project || undefined)])
+    const [projects, runs] = await Promise.all([
+      api.fetchProjects(),
+      api.fetchRuns(state.project || undefined),
+    ])
     // there is no all-projects view — fall back to the most recently active project
     let nextProject = state.project
     let nextRuns = runs
@@ -168,8 +187,12 @@ export async function refresh() {
     if (!state.ready) {
       // honour the restored (localStorage / URL) selection, dropping ids that no
       // longer exist; fall back to the most recent runs so the page isn't empty
-      const valid = state.selected.filter((id) => state.runs.some((r) => r.id === id))
-      state.selected = valid.length ? valid : state.runs.slice(0, 4).map((r) => r.id)
+      const valid = state.selected.filter((id) =>
+        state.runs.some((r) => r.id === id),
+      )
+      state.selected = valid.length
+        ? valid
+        : state.runs.slice(0, 4).map((r) => r.id)
       state.ready = true
     }
   } catch (err) {
@@ -205,7 +228,9 @@ function schedule() {
   if (!polling || !state.live) return
   if (document.hidden) return // backgrounded tab: stop polling; visibilitychange resumes it
   clearTimeout(timer)
-  const delay = state.runs.some((r) => r.status === 'running') ? pollMs : IDLE_POLL_MS
+  const delay = state.runs.some((r) => r.status === 'running')
+    ? pollMs
+    : IDLE_POLL_MS
   timer = setTimeout(() => refresh().then(schedule), delay)
 }
 
@@ -259,14 +284,27 @@ export async function signOut() {
 // view settings survive reloads; URL params (below) still win for deep links
 
 const PREFS_KEY = 'pandm-prefs'
-const PREF_FIELDS = ['tab', 'columns', 'smoothing', 'xAxis', 'logScale', 'selected', 'live', 'sidebarWidth'] as const
+const PREF_FIELDS = [
+  'tab',
+  'columns',
+  'smoothing',
+  'xAxis',
+  'logScale',
+  'selected',
+  'live',
+  'sidebarWidth',
+] as const
 
 try {
   const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}')
   for (const f of PREF_FIELDS) {
     // match both primitive type and array-ness so a corrupted `selected` can't
     // become a non-array and break `.includes`
-    if (f in saved && typeof saved[f] === typeof state[f] && Array.isArray(saved[f]) === Array.isArray(state[f]))
+    if (
+      f in saved &&
+      typeof saved[f] === typeof state[f] &&
+      Array.isArray(saved[f]) === Array.isArray(state[f])
+    )
       (state as any)[f] = saved[f]
   }
 } catch {
@@ -274,7 +312,10 @@ try {
 }
 
 watchEffect(() => {
-  localStorage.setItem(PREFS_KEY, JSON.stringify(Object.fromEntries(PREF_FIELDS.map((f) => [f, state[f]]))))
+  localStorage.setItem(
+    PREFS_KEY,
+    JSON.stringify(Object.fromEntries(PREF_FIELDS.map((f) => [f, state[f]]))),
+  )
 })
 
 // ------------------------------------------------------------- deep links
@@ -292,7 +333,8 @@ watchEffect(() => {
     state.touched = true
   }
   const smooth = Number.parseFloat(params.get('smooth') ?? '')
-  if (!Number.isNaN(smooth)) state.smoothing = Math.min(0.99, Math.max(0, smooth))
+  if (!Number.isNaN(smooth))
+    state.smoothing = Math.min(0.99, Math.max(0, smooth))
   const cols = Number.parseInt(params.get('cols') ?? '')
   if (!Number.isNaN(cols)) state.columns = Math.min(6, Math.max(0, cols))
   // `pandm login` approval code — stash it so it survives the GitHub OAuth roundtrip
@@ -310,7 +352,8 @@ watchEffect(() => {
   const params = new URLSearchParams()
   if (state.project) params.set('project', state.project)
   if (state.tab !== 'metrics') params.set('tab', state.tab)
-  if (state.touched && state.selected.length) params.set('runs', state.selected.join(','))
+  if (state.touched && state.selected.length)
+    params.set('runs', state.selected.join(','))
   if (state.smoothing > 0) params.set('smooth', String(state.smoothing))
   if (state.columns > 0) params.set('cols', String(state.columns))
   const qs = params.toString()
@@ -325,7 +368,12 @@ interface CacheEntry<T> {
   promise: Promise<T>
 }
 
-function cached<T>(map: Map<string, CacheEntry<T>>, run: api.Run, key: string, fetcher: () => Promise<T>): Promise<T> {
+function cached<T>(
+  map: Map<string, CacheEntry<T>>,
+  run: api.Run,
+  key: string,
+  fetcher: () => Promise<T>,
+): Promise<T> {
   const hit = map.get(key)
   if (hit && hit.updated === run.updated_at) return hit.promise
   const promise = fetcher().catch((err) => {
@@ -351,7 +399,11 @@ export function getSeries(run: api.Run, key: string): Promise<api.Series> {
     // re-reading the whole series on every poll. Late out-of-order steps are
     // missed until the next full fetch — acceptable for a live view.
     const prev = hit ? await hit.promise.catch(() => null) : null
-    if (prev && prev.steps.length > 0 && prev.steps.length < MAX_CLIENT_POINTS) {
+    if (
+      prev &&
+      prev.steps.length > 0 &&
+      prev.steps.length < MAX_CLIENT_POINTS
+    ) {
       const lastStep = prev.steps[prev.steps.length - 1]
       const tail = await api.fetchSeries(run.id, key, lastStep)
       // keep the append idempotent: drop any tail point at/below the last step we
@@ -371,15 +423,21 @@ export function getSeries(run: api.Run, key: string): Promise<api.Series> {
   return promise
 }
 
-export const getMedia = (run: api.Run) => cached(mediaCache, run, run.id, () => api.fetchMedia(run.id))
+export const getMedia = (run: api.Run) =>
+  cached(mediaCache, run, run.id, () => api.fetchMedia(run.id))
 
 // histograms aren't in run.stats (those are metric-only), so a run's distribution
 // keys are discovered with a dedicated request, cached by updated_at. The reactive
 // map drives the dashboard's Distributions section; getHistogram fetches a series.
 const histogramCache = new Map<string, CacheEntry<api.HistogramSeries>>()
 
-export function getHistogram(run: api.Run, key: string): Promise<api.HistogramSeries> {
-  return cached(histogramCache, run, `${run.id} ${key}`, () => api.fetchHistogramSeries(run.id, key))
+export function getHistogram(
+  run: api.Run,
+  key: string,
+): Promise<api.HistogramSeries> {
+  return cached(histogramCache, run, `${run.id} ${key}`, () =>
+    api.fetchHistogramSeries(run.id, key),
+  )
 }
 
 export const histogramKeysByRun = reactive<Record<string, string[]>>({})

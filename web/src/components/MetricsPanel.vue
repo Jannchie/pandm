@@ -3,7 +3,14 @@ import type { ChartDesc, ChartSeriesDesc } from '../store'
 import { computed, watchEffect } from 'vue'
 import { runColor } from '../colors'
 import { fmtMetric } from '../fmt'
-import { bestRunFor, ensureHistogramKeys, histogramKeysByRun, metricSpec, selectedRuns, state } from '../store'
+import {
+  bestRunFor,
+  ensureHistogramKeys,
+  histogramKeysByRun,
+  metricSpec,
+  selectedRuns,
+  state,
+} from '../store'
 import HistogramChart from './HistogramChart.vue'
 import MetricChart from './MetricChart.vue'
 
@@ -37,7 +44,7 @@ const charts = computed<ChartDesc[]>(() => {
   // band=true pairs the _lo/_hi siblings, band={lo,hi} names them. (No silent
   // suffix magic — bare _lo/_hi keys stay ordinary charts unless a band is declared.)
   const consumed = new Set<string>()
-  const bandOf = new Map<string, { lo: string, hi: string }>()
+  const bandOf = new Map<string, { lo: string; hi: string }>()
   for (const k of keys) {
     const band = specOf.get(k)?.band
     let lo: string | undefined
@@ -45,8 +52,7 @@ const charts = computed<ChartDesc[]>(() => {
     if (band && typeof band === 'object') {
       lo = band.lo
       hi = band.hi
-    }
-    else if (band === true) {
+    } else if (band === true) {
       lo = `${k}_lo`
       hi = `${k}_hi`
     }
@@ -71,17 +77,20 @@ const charts = computed<ChartDesc[]>(() => {
   const panels = new Map<string, string[]>()
   const out: ChartDesc[] = []
   for (const k of keys) {
-    if (consumed.has(k))
-      continue
+    if (consumed.has(k)) continue
     const spec = specOf.get(k)
     const isBar = spec?.kind === 'bar'
     if (spec?.panel && (!multiRun || isBar)) {
-      if (!panels.has(spec.panel))
-        panels.set(spec.panel, [])
+      if (!panels.has(spec.panel)) panels.set(spec.panel, [])
       panels.get(spec.panel)!.push(k)
-    }
-    else {
-      out.push({ id: `key:${k}`, title: k, kind: spec?.kind ?? 'line', series: [seriesFor(k)], colorBy: 'run' })
+    } else {
+      out.push({
+        id: `key:${k}`,
+        title: k,
+        kind: spec?.kind ?? 'line',
+        series: [seriesFor(k)],
+        colorBy: 'run',
+      })
     }
   }
   for (const [panel, members] of panels) {
@@ -123,8 +132,7 @@ const sections = computed(() => {
     const probe = c.series[0]?.key ?? c.title
     const slash = probe.indexOf('/')
     const name = slash > 0 ? probe.slice(0, slash) : ''
-    if (!byPrefix.has(name))
-      byPrefix.set(name, [])
+    if (!byPrefix.has(name)) byPrefix.set(name, [])
     byPrefix.get(name)!.push(c)
   }
   return [...byPrefix.entries()]
@@ -143,28 +151,39 @@ const gridStyle = computed(() => ({
 // template reads each once instead of recomputing per access.
 const descs = computed(() => {
   const out: Record<string, string | undefined> = {}
-  for (const c of charts.value) out[c.id] = c.panel ? undefined : metricSpec(c.series[0].key)?.description
+  for (const c of charts.value)
+    out[c.id] = c.panel ? undefined : metricSpec(c.series[0].key)?.description
   return out
 })
 
 const badges = computed(() => {
-  const out: Record<string, { value: string, color: string, star: boolean } | null> = {}
+  const out: Record<
+    string,
+    { value: string; color: string; star: boolean } | null
+  > = {}
   const multi = selectedRuns.value.length > 1
   for (const c of charts.value) {
-    const spec = c.panel || c.kind === 'histogram' ? null : metricSpec(c.series[0].key)
+    const spec =
+      c.panel || c.kind === 'histogram' ? null : metricSpec(c.series[0].key)
     if (!spec || (!spec.goal && multi)) {
       out[c.id] = null // panel, no spec, or ambiguous which run is "best"
       continue
     }
     const best = bestRunFor(c.series[0].key, spec.goal ?? 'max')
     out[c.id] = best
-      ? { value: fmtMetric(best.value, spec.unit), color: runColor(best.run.id), star: !!spec.goal && multi }
+      ? {
+          value: fmtMetric(best.value, spec.unit),
+          color: runColor(best.run.id),
+          star: !!spec.goal && multi,
+        }
       : null
   }
   return out
 })
 
-const expanded = computed(() => charts.value.find((c) => c.id === state.expandedChart) ?? null)
+const expanded = computed(
+  () => charts.value.find((c) => c.id === state.expandedChart) ?? null,
+)
 
 // histogram keys don't ride in run.stats, so discover them per run with a dedicated
 // request; the result feeds histogramKeysByRun, which the charts computed folds into
@@ -176,7 +195,11 @@ watchEffect(() => {
 
 <template>
   <div v-if="charts.length" class="p-4 flex flex-col gap-5">
-    <section v-for="grp in sections" :key="grp.name || '_'" class="flex flex-col gap-2">
+    <section
+      v-for="grp in sections"
+      :key="grp.name || '_'"
+      class="flex flex-col gap-2"
+    >
       <h3
         v-if="grp.name"
         class="text-[12.5px] text-fg-dim font-semibold uppercase tracking-wide px-0.5"
@@ -184,14 +207,21 @@ watchEffect(() => {
         {{ grp.name }}
       </h3>
       <div class="grid gap-3 mobile-1col" :style="gridStyle">
-        <div v-for="c in grp.items" :key="c.id" class="card group p-3 pb-1 min-w-0 flex flex-col">
+        <div
+          v-for="c in grp.items"
+          :key="c.id"
+          class="card group p-3 pb-1 min-w-0 flex flex-col"
+        >
           <div class="flex items-center mb-1">
-            <span class="text-[14px] text-fg font-medium truncate font-mono">{{ c.title }}</span>
+            <span class="text-[14px] text-fg font-medium truncate font-mono">{{
+              c.title
+            }}</span>
             <span
               v-if="c.kind === 'histogram' && selectedRuns.length > 1"
               class="text-[12px] font-mono truncate shrink-0 ml-2"
               :style="{ color: runColor(c.run!.id) }"
-            >{{ c.run!.name }}</span>
+              >{{ c.run!.name }}</span
+            >
             <div class="flex-1" />
             <span
               v-if="badges[c.id]"
@@ -217,7 +247,10 @@ watchEffect(() => {
               </svg>
             </button>
           </div>
-          <p v-if="descs[c.id]" class="text-[12.5px] text-fg-dim leading-snug mb-1 -mt-0.5 line-clamp-2">
+          <p
+            v-if="descs[c.id]"
+            class="text-[12.5px] text-fg-dim leading-snug mb-1 -mt-0.5 line-clamp-2"
+          >
             {{ descs[c.id] }}
           </p>
           <!-- aspect-ratio (not fixed height) so charts scale with the column width.
@@ -226,7 +259,11 @@ watchEffect(() => {
                bottom-aligned (and thus top-aligned too — charts are equal size) with
                its neighbours that do have one. -->
           <div class="aspect-video shrink-0 mt-auto">
-            <HistogramChart v-if="c.kind === 'histogram'" :run="c.run!" :metric-key="c.series[0].key" />
+            <HistogramChart
+              v-if="c.kind === 'histogram'"
+              :run="c.run!"
+              :metric-key="c.series[0].key"
+            />
             <MetricChart v-else :desc="c" />
           </div>
         </div>
@@ -234,7 +271,10 @@ watchEffect(() => {
     </section>
   </div>
 
-  <div v-else class="h-full flex items-center justify-center text-[14.5px] text-fg-dim">
+  <div
+    v-else
+    class="h-full flex items-center justify-center text-[14.5px] text-fg-dim"
+  >
     No metrics yet — call run.log({"loss": …})
   </div>
 
@@ -249,25 +289,43 @@ watchEffect(() => {
         <div class="card w-full max-w-5xl p-4 pb-2 shadow-2xl">
           <div class="flex items-center mb-2">
             <div class="min-w-0">
-              <span class="text-[14.5px] text-fg font-medium font-mono">{{ expanded.title }}</span>
+              <span class="text-[14.5px] text-fg font-medium font-mono">{{
+                expanded.title
+              }}</span>
               <span
                 v-if="expanded.kind === 'histogram' && selectedRuns.length > 1"
                 class="text-[12.5px] font-mono ml-2"
                 :style="{ color: runColor(expanded.run!.id) }"
-              >{{ expanded.run!.name }}</span>
-              <p v-if="descs[expanded.id]" class="text-[12.5px] text-fg-dim leading-snug truncate">
+                >{{ expanded.run!.name }}</span
+              >
+              <p
+                v-if="descs[expanded.id]"
+                class="text-[12.5px] text-fg-dim leading-snug truncate"
+              >
                 {{ descs[expanded.id] }}
               </p>
             </div>
             <div class="flex-1" />
-            <button class="text-fg-dim hover:text-fg transition-colors cursor-pointer" @click="state.expandedChart = null">
+            <button
+              class="text-fg-dim hover:text-fg transition-colors cursor-pointer"
+              @click="state.expandedChart = null"
+            >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                <path
+                  d="M6 6l12 12M18 6L6 18"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
               </svg>
             </button>
           </div>
           <div class="h-[64vh]">
-            <HistogramChart v-if="expanded.kind === 'histogram'" :run="expanded.run!" :metric-key="expanded.series[0].key" />
+            <HistogramChart
+              v-if="expanded.kind === 'histogram'"
+              :run="expanded.run!"
+              :metric-key="expanded.series[0].key"
+            />
             <MetricChart v-else :desc="expanded" />
           </div>
         </div>

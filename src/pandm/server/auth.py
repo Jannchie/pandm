@@ -68,7 +68,9 @@ def _verify(secret: bytes, token: str) -> dict[str, Any] | None:
     try:
         body_b64, sig_b64 = token.split(".", 1)
         body = body_b64.encode()
-        expected = base64.urlsafe_b64encode(hmac.new(secret, body, hashlib.sha256).digest()).decode()
+        expected = base64.urlsafe_b64encode(
+            hmac.new(secret, body, hashlib.sha256).digest()
+        ).decode()
         if not hmac.compare_digest(expected, sig_b64):
             return None
         payload = json.loads(base64.urlsafe_b64decode(body))
@@ -97,8 +99,12 @@ class AuthContext:
     secret: bytes
     client_id: str
     client_secret: str
-    secure_cookies: bool = field(default_factory=lambda: bool(os.environ.get("PANDM_SECURE_COOKIES")))
-    device_requests: dict[str, _DeviceRequest] = field(default_factory=dict)  # user_code -> request
+    secure_cookies: bool = field(
+        default_factory=lambda: bool(os.environ.get("PANDM_SECURE_COOKIES"))
+    )
+    device_requests: dict[str, _DeviceRequest] = field(
+        default_factory=dict
+    )  # user_code -> request
 
     # -------------------------------------------------------- identity
 
@@ -153,7 +159,9 @@ def register_auth_routes(app: FastAPI, ctx: AuthContext) -> None:
     @app.get("/api/auth/login")
     def auth_login() -> RedirectResponse:
         state = secrets.token_urlsafe(16)
-        params = httpx.QueryParams(client_id=ctx.client_id, state=state, scope="read:user")
+        params = httpx.QueryParams(
+            client_id=ctx.client_id, state=state, scope="read:user"
+        )
         resp = RedirectResponse(f"{GITHUB_AUTHORIZE}?{params}")
         resp.set_cookie(
             STATE_COOKIE,
@@ -172,7 +180,11 @@ def register_auth_routes(app: FastAPI, ctx: AuthContext) -> None:
             raise HTTPException(status_code=403, detail="oauth state mismatch")
         token_resp = httpx.post(
             GITHUB_TOKEN,
-            data={"client_id": ctx.client_id, "client_secret": ctx.client_secret, "code": code},
+            data={
+                "client_id": ctx.client_id,
+                "client_secret": ctx.client_secret,
+                "code": code,
+            },
             headers={"Accept": "application/json"},
             timeout=15,
         )
@@ -181,12 +193,17 @@ def register_auth_routes(app: FastAPI, ctx: AuthContext) -> None:
         if not access_token:
             raise HTTPException(status_code=403, detail="github did not grant a token")
         profile_resp = httpx.get(
-            GITHUB_USER_API, headers={"Authorization": f"Bearer {access_token}"}, timeout=15
+            GITHUB_USER_API,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=15,
         )
         profile_resp.raise_for_status()
         profile = profile_resp.json()
         user = ctx.store.upsert_user(
-            profile["id"], profile["login"], profile.get("name"), profile.get("avatar_url")
+            profile["id"],
+            profile["login"],
+            profile.get("name"),
+            profile.get("avatar_url"),
         )
         resp = RedirectResponse("/")
         ctx._set_session(resp, user["id"])
@@ -225,8 +242,12 @@ def register_auth_routes(app: FastAPI, ctx: AuthContext) -> None:
         if len(ctx.device_requests) >= 100:  # basic flood guard
             raise HTTPException(status_code=429, detail="too many pending requests")
         alphabet = string.ascii_uppercase + string.digits
-        user_code = "-".join("".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(2))
-        req = _DeviceRequest(device_token=secrets.token_urlsafe(32), created=time.time())
+        user_code = "-".join(
+            "".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(2)
+        )
+        req = _DeviceRequest(
+            device_token=secrets.token_urlsafe(32), created=time.time()
+        )
         ctx.device_requests[user_code] = req
         return {"user_code": user_code, "device_token": req.device_token}
 

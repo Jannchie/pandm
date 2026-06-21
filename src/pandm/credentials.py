@@ -16,7 +16,9 @@ from typing import Any, Callable, Literal, NamedTuple
 
 Mode = Literal["local", "remote_only", "dual"]
 
-DEFAULT_SERVER = "https://pandm.jannchie.com"  # the hosted pandm cloud (`pandm login` with no URL)
+DEFAULT_SERVER = (
+    "https://pandm.jannchie.com"  # the hosted pandm cloud (`pandm login` with no URL)
+)
 
 
 def cred_path() -> Path:
@@ -46,13 +48,21 @@ def load() -> dict[str, Any] | None:
         data = json.loads(cred_path().read_text())
     except (OSError, ValueError):
         return None
-    return data if isinstance(data, dict) and data.get("server") and data.get("api_key") else None
+    return (
+        data
+        if isinstance(data, dict) and data.get("server") and data.get("api_key")
+        else None
+    )
 
 
 def save(server: str, api_key: str, login: str | None = None) -> Path:
     path = cred_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"server": server.rstrip("/"), "api_key": api_key, "login": login}, indent=2))
+    path.write_text(
+        json.dumps(
+            {"server": server.rstrip("/"), "api_key": api_key, "login": login}, indent=2
+        )
+    )
     path.chmod(0o600)
     return path
 
@@ -71,19 +81,29 @@ class Remote(NamedTuple):
     api_key: str | None
 
 
-def resolve_remote(remote: str | bool | None = None, api_key: str | None = None) -> Remote:
+def resolve_remote(
+    remote: str | bool | None = None, api_key: str | None = None
+) -> Remote:
     """Precedence: remote=False/PANDM_NO_SYNC > remote=/PANDM_REMOTE (remote-only) > credentials (dual) > local."""
     if remote is False or os.environ.get("PANDM_NO_SYNC"):
         return Remote("local", None, None)
     creds = load()
-    url = (remote if isinstance(remote, str) else None) or os.environ.get("PANDM_REMOTE")
+    url = (remote if isinstance(remote, str) else None) or os.environ.get(
+        "PANDM_REMOTE"
+    )
     if url:
         key = api_key or os.environ.get("PANDM_API_KEY")
         if key is None and creds and creds["server"] == url.rstrip("/"):
-            key = creds["api_key"]  # saved key is reused only for the server it belongs to
+            key = creds[
+                "api_key"
+            ]  # saved key is reused only for the server it belongs to
         return Remote("remote_only", url, key)
     if creds:
-        return Remote("dual", creds["server"], api_key or os.environ.get("PANDM_API_KEY") or creds["api_key"])
+        return Remote(
+            "dual",
+            creds["server"],
+            api_key or os.environ.get("PANDM_API_KEY") or creds["api_key"],
+        )
     return Remote("local", None, None)
 
 
@@ -139,7 +159,9 @@ def device_login(
             return None
         info = start.json()
         approve_url = f"{server}/?cli={info['user_code']}"
-        echo(f"\nTo sign in, open this URL in a browser on any device and approve code {info['user_code']}:")
+        echo(
+            f"\nTo sign in, open this URL in a browser on any device and approve code {info['user_code']}:"
+        )
         echo(f"    {approve_url}")
         if open_browser and _can_open_browser():
             try:
@@ -152,7 +174,9 @@ def device_login(
             time.sleep(poll_interval)
             try:
                 poll = httpx.post(
-                    f"{server}/api/cli/poll", json={"device_token": info["device_token"]}, timeout=10
+                    f"{server}/api/cli/poll",
+                    json={"device_token": info["device_token"]},
+                    timeout=10,
                 )
             except httpx.HTTPError as exc:
                 echo(f"network error while waiting: {exc}")

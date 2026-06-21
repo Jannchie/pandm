@@ -20,7 +20,8 @@ import { state } from '../store'
 
     <p class="text-[14.5px] text-fg-dim">Sign in to see your experiments</p>
     <p v-if="state.cliCode" class="text-[13.5px] text-fg-mut -mt-3">
-      then approve CLI sign-in code <span class="font-mono text-accent-hi">{{ state.cliCode }}</span>
+      then approve CLI sign-in code
+      <span class="font-mono text-accent-hi">{{ state.cliCode }}</span>
     </p>
 
     <a

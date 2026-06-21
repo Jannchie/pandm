@@ -7,13 +7,15 @@ import { selectedRuns } from '../store'
 
 const cfgKeys = computed(() => {
   const set = new Set<string>()
-  for (const run of selectedRuns.value) for (const k of Object.keys(run.config)) set.add(k)
+  for (const run of selectedRuns.value)
+    for (const k of Object.keys(run.config)) set.add(k)
   return [...set].sort()
 })
 
 const sumKeys = computed(() => {
   const set = new Set<string>()
-  for (const run of selectedRuns.value) for (const k of Object.keys(run.summary)) set.add(k)
+  for (const run of selectedRuns.value)
+    for (const k of Object.keys(run.summary)) set.add(k)
   return [...set].sort()
 })
 
@@ -42,11 +44,21 @@ const statusColor: Record<string, string> = {
       <table class="w-full text-[14px] border-collapse whitespace-nowrap">
         <thead>
           <tr class="text-fg-dim text-[12px] uppercase tracking-wider">
-            <th colspan="4" class="text-left px-3 pt-3 pb-1 font-medium">Run</th>
-            <th v-if="cfgKeys.length" :colspan="cfgKeys.length" class="text-left px-3 pt-3 pb-1 font-medium border-l border-border">
+            <th colspan="4" class="text-left px-3 pt-3 pb-1 font-medium">
+              Run
+            </th>
+            <th
+              v-if="cfgKeys.length"
+              :colspan="cfgKeys.length"
+              class="text-left px-3 pt-3 pb-1 font-medium border-l border-border"
+            >
               Config
             </th>
-            <th v-if="sumKeys.length" :colspan="sumKeys.length" class="text-left px-3 pt-3 pb-1 font-medium border-l border-border">
+            <th
+              v-if="sumKeys.length"
+              :colspan="sumKeys.length"
+              class="text-left px-3 pt-3 pb-1 font-medium border-l border-border"
+            >
               Summary
             </th>
           </tr>
@@ -55,10 +67,20 @@ const statusColor: Record<string, string> = {
             <th class="text-left px-3 py-2 font-medium">status</th>
             <th class="text-left px-3 py-2 font-medium">created</th>
             <th class="text-left px-3 py-2 font-medium">duration</th>
-            <th v-for="(k, i) in cfgKeys" :key="'c' + k" class="text-left px-3 py-2 font-mono font-medium" :class="{ 'border-l border-border': i === 0 }">
+            <th
+              v-for="(k, i) in cfgKeys"
+              :key="'c' + k"
+              class="text-left px-3 py-2 font-mono font-medium"
+              :class="{ 'border-l border-border': i === 0 }"
+            >
               {{ k }}
             </th>
-            <th v-for="(k, i) in sumKeys" :key="'s' + k" class="text-right px-3 py-2 font-mono font-medium" :class="{ 'border-l border-border': i === 0 }">
+            <th
+              v-for="(k, i) in sumKeys"
+              :key="'s' + k"
+              class="text-right px-3 py-2 font-mono font-medium"
+              :class="{ 'border-l border-border': i === 0 }"
+            >
               {{ k }}
             </th>
           </tr>
@@ -71,18 +93,39 @@ const statusColor: Record<string, string> = {
           >
             <td class="px-3 py-2.5">
               <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full shrink-0" :style="{ background: runColor(run.id) }" />
+                <span
+                  class="w-2 h-2 rounded-full shrink-0"
+                  :style="{ background: runColor(run.id) }"
+                />
                 <span class="text-fg">{{ run.name }}</span>
-                <span class="text-fg-dim text-[12px] font-mono">{{ run.id }}</span>
+                <span class="text-fg-dim text-[12px] font-mono">{{
+                  run.id
+                }}</span>
               </div>
             </td>
-            <td class="px-3 py-2.5" :class="statusColor[run.status]">{{ run.status }}</td>
-            <td class="px-3 py-2.5 text-fg-mut">{{ fmtClock(run.created_at) }}</td>
-            <td class="px-3 py-2.5 text-fg-mut tabular-nums">{{ duration(run) }}</td>
-            <td v-for="(k, i) in cfgKeys" :key="'c' + k" class="px-3 py-2.5 text-fg-mut font-mono text-[13.5px]" :class="{ 'border-l border-border': i === 0 }">
+            <td class="px-3 py-2.5" :class="statusColor[run.status]">
+              {{ run.status }}
+            </td>
+            <td class="px-3 py-2.5 text-fg-mut">
+              {{ fmtClock(run.created_at) }}
+            </td>
+            <td class="px-3 py-2.5 text-fg-mut tabular-nums">
+              {{ duration(run) }}
+            </td>
+            <td
+              v-for="(k, i) in cfgKeys"
+              :key="'c' + k"
+              class="px-3 py-2.5 text-fg-mut font-mono text-[13.5px]"
+              :class="{ 'border-l border-border': i === 0 }"
+            >
               {{ cfg(run, k) }}
             </td>
-            <td v-for="(k, i) in sumKeys" :key="'s' + k" class="px-3 py-2.5 text-right text-fg font-mono text-[13.5px] tabular-nums" :class="{ 'border-l border-border': i === 0 }">
+            <td
+              v-for="(k, i) in sumKeys"
+              :key="'s' + k"
+              class="px-3 py-2.5 text-right text-fg font-mono text-[13.5px] tabular-nums"
+              :class="{ 'border-l border-border': i === 0 }"
+            >
               {{ run.summary[k] !== undefined ? fmtNum(run.summary[k]) : '–' }}
             </td>
           </tr>
@@ -92,21 +135,42 @@ const statusColor: Record<string, string> = {
 
     <!-- mobile: runs stacked, separated by borders instead of cards -->
     <div class="md:hidden border-t border-border">
-      <div v-for="run in selectedRuns" :key="run.id" class="border-b border-border">
+      <div
+        v-for="run in selectedRuns"
+        :key="run.id"
+        class="border-b border-border"
+      >
         <div class="flex items-center gap-2 min-w-0 px-1 py-2.5">
-          <span class="w-2 h-2 rounded-full shrink-0" :style="{ background: runColor(run.id) }" />
+          <span
+            class="w-2 h-2 rounded-full shrink-0"
+            :style="{ background: runColor(run.id) }"
+          />
           <span class="text-fg text-[14.5px] truncate">{{ run.name }}</span>
-          <span class="text-fg-dim text-[12px] font-mono truncate">{{ run.id }}</span>
-          <span class="ml-auto shrink-0 text-[12.5px] capitalize" :class="statusColor[run.status]">{{ run.status }}</span>
+          <span class="text-fg-dim text-[12px] font-mono truncate">{{
+            run.id
+          }}</span>
+          <span
+            class="ml-auto shrink-0 text-[12.5px] capitalize"
+            :class="statusColor[run.status]"
+            >{{ run.status }}</span
+          >
         </div>
 
-        <div class="flex items-baseline gap-2 px-1 py-1 border-t border-border/50 text-[13.5px]">
+        <div
+          class="flex items-baseline gap-2 px-1 py-1 border-t border-border/50 text-[13.5px]"
+        >
           <span class="text-fg-dim">created</span>
-          <span class="ml-auto text-fg-mut tabular-nums">{{ fmtClock(run.created_at) }}</span>
+          <span class="ml-auto text-fg-mut tabular-nums">{{
+            fmtClock(run.created_at)
+          }}</span>
         </div>
-        <div class="flex items-baseline gap-2 px-1 py-1 border-t border-border/50 text-[13.5px]">
+        <div
+          class="flex items-baseline gap-2 px-1 py-1 border-t border-border/50 text-[13.5px]"
+        >
           <span class="text-fg-dim">duration</span>
-          <span class="ml-auto text-fg-mut tabular-nums">{{ duration(run) }}</span>
+          <span class="ml-auto text-fg-mut tabular-nums">{{
+            duration(run)
+          }}</span>
         </div>
 
         <div
@@ -126,7 +190,10 @@ const statusColor: Record<string, string> = {
           class="flex items-baseline gap-2 px-1 py-1 border-t border-border/50 text-[13.5px]"
         >
           <span class="font-mono text-fg-dim truncate">{{ k }}</span>
-          <span class="ml-auto shrink-0 font-mono text-fg-mut truncate max-w-[60%] text-right">{{ cfg(run, k) }}</span>
+          <span
+            class="ml-auto shrink-0 font-mono text-fg-mut truncate max-w-[60%] text-right"
+            >{{ cfg(run, k) }}</span
+          >
         </div>
       </div>
     </div>

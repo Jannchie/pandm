@@ -3,18 +3,30 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { runColor } from '../colors'
 import { estimateEta } from '../eta'
 import { fmtDuration, timeAgo } from '../fmt'
-import { removeRun, selectAll, selectNone, selectRun, state, visibleRuns } from '../store'
+import {
+  removeRun,
+  selectAll,
+  selectNone,
+  selectRun,
+  state,
+  visibleRuns,
+} from '../store'
 import type { Run } from '../api'
 
 // per-second clock so the "time left" counts down between polls (finishAt is fixed)
 const now = ref(Date.now() / 1000)
 let ticker: ReturnType<typeof setInterval>
-onMounted(() => (ticker = setInterval(() => (now.value = Date.now() / 1000), 1000)))
+onMounted(
+  () => (ticker = setInterval(() => (now.value = Date.now() / 1000), 1000)),
+)
 onUnmounted(() => clearInterval(ticker))
 
 // pair each run with its ETA; recomputed only when the run data changes (not every tick)
 const rows = computed(() =>
-  visibleRuns.value.map((run) => ({ run, eta: run.status === 'running' ? estimateEta(run) : null })),
+  visibleRuns.value.map((run) => ({
+    run,
+    eta: run.status === 'running' ? estimateEta(run) : null,
+  })),
 )
 
 const MIN_W = 200
@@ -27,7 +39,9 @@ const onMq = (e: MediaQueryListEvent) => (isDesktop.value = e.matches)
 mq.addEventListener('change', onMq)
 onUnmounted(() => mq.removeEventListener('change', onMq))
 
-const asideStyle = computed(() => (isDesktop.value ? { width: `${state.sidebarWidth}px` } : {}))
+const asideStyle = computed(() =>
+  isDesktop.value ? { width: `${state.sidebarWidth}px` } : {},
+)
 
 const dragging = ref(false)
 function startResize(e: PointerEvent) {
@@ -53,7 +67,12 @@ function startResize(e: PointerEvent) {
 }
 
 function confirmDelete(run: Run) {
-  if (window.confirm(`Delete run "${run.name}" and its media? This cannot be undone.`)) removeRun(run.id)
+  if (
+    window.confirm(
+      `Delete run "${run.name}" and its media? This cannot be undone.`,
+    )
+  )
+    removeRun(run.id)
 }
 </script>
 
@@ -79,18 +98,33 @@ function confirmDelete(run: Run) {
         class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-dim"
       >
         <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" />
-        <path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        <path
+          d="M20 20l-3.5-3.5"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+        />
       </svg>
-      <input v-model="state.search" placeholder="Filter runs…" class="w-full h-full bg-transparent border-none rounded-none pl-8 pr-3 text-[14.5px] text-fg placeholder:text-fg-dim outline-none" />
+      <input
+        v-model="state.search"
+        placeholder="Filter runs…"
+        class="w-full h-full bg-transparent border-none rounded-none pl-8 pr-3 text-[14.5px] text-fg placeholder:text-fg-dim outline-none"
+      />
     </div>
 
     <!-- selection controls -->
     <div class="flex items-center px-2.5 py-1 text-[12.5px] text-fg-dim">
-      <span>{{ state.selected.length }} of {{ visibleRuns.length }} selected</span>
+      <span
+        >{{ state.selected.length }} of {{ visibleRuns.length }} selected</span
+      >
       <div class="flex-1" />
-      <button class="hover:text-fg-mut transition-colors" @click="selectAll">all</button>
+      <button class="hover:text-fg-mut transition-colors" @click="selectAll">
+        all
+      </button>
       <span class="mx-1.5 opacity-40">·</span>
-      <button class="hover:text-fg-mut transition-colors" @click="selectNone">none</button>
+      <button class="hover:text-fg-mut transition-colors" @click="selectNone">
+        none
+      </button>
     </div>
 
     <!-- run list -->
@@ -99,7 +133,9 @@ function confirmDelete(run: Run) {
         v-for="{ run, eta } in rows"
         :key="run.id"
         class="group relative flex items-center gap-2 px-2.5 py-1 cursor-pointer transition-colors"
-        :class="state.selected.includes(run.id) ? 'bg-elev/70' : 'hover:bg-elev/40'"
+        :class="
+          state.selected.includes(run.id) ? 'bg-elev/70' : 'hover:bg-elev/40'
+        "
         @click="selectRun(run.id, $event.ctrlKey || $event.metaKey)"
       >
         <!-- color dot doubles as the checkbox -->
@@ -112,28 +148,49 @@ function confirmDelete(run: Run) {
           "
         />
         <div class="flex-1 min-w-0">
-          <div class="text-[14.5px] truncate leading-tight" :class="state.selected.includes(run.id) ? 'text-fg' : 'text-fg-mut'">
+          <div
+            class="text-[14.5px] truncate leading-tight"
+            :class="state.selected.includes(run.id) ? 'text-fg' : 'text-fg-mut'"
+          >
             {{ run.name }}
           </div>
-          <div v-if="run.description" class="text-[12.5px] text-fg-mut/80 truncate leading-tight">
+          <div
+            v-if="run.description"
+            class="text-[12.5px] text-fg-mut/80 truncate leading-tight"
+          >
             {{ run.description }}
           </div>
-          <div v-if="run.group || run.tags.length" class="flex items-center gap-1 flex-wrap mt-0.5">
+          <div
+            v-if="run.group || run.tags.length"
+            class="flex items-center gap-1 flex-wrap mt-0.5"
+          >
             <span
               v-if="run.group"
               class="text-[11px] leading-tight px-1 rounded bg-elev text-fg-mut shrink-0"
               :title="`group: ${run.group}`"
-            >▤ {{ run.group }}</span>
-            <span v-for="t in run.tags" :key="t" class="text-[11px] leading-tight px-1 rounded bg-elev/60 text-fg-dim shrink-0">
+              >▤ {{ run.group }}</span
+            >
+            <span
+              v-for="t in run.tags"
+              :key="t"
+              class="text-[11px] leading-tight px-1 rounded bg-elev/60 text-fg-dim shrink-0"
+            >
               {{ t }}
             </span>
           </div>
           <div class="text-[12.5px] text-fg-dim truncate leading-tight">
-            <template v-if="run.status === 'running' && eta && eta.fraction != null">
-              {{ Math.round(eta.fraction * 100) }}%<template v-if="eta.finishAt"> · ~{{ fmtDuration(eta.finishAt - now) }} left</template>
+            <template
+              v-if="run.status === 'running' && eta && eta.fraction != null"
+            >
+              {{ Math.round(eta.fraction * 100) }}%<template
+                v-if="eta.finishAt"
+              >
+                · ~{{ fmtDuration(eta.finishAt - now) }} left</template
+              >
             </template>
             <template v-else>
-              <template v-if="!state.project">{{ run.project }} · </template>{{ timeAgo(run.created_at) }}
+              <template v-if="!state.project">{{ run.project }} · </template
+              >{{ timeAgo(run.created_at) }}
             </template>
           </div>
         </div>
@@ -151,7 +208,12 @@ function confirmDelete(run: Run) {
           class="text-err/80 shrink-0"
           title="crashed"
         >
-          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+          <path
+            d="M6 6l12 12M18 6L6 18"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+          />
         </svg>
         <button
           class="opacity-0 group-hover:opacity-100 text-fg-dim hover:text-err transition-all shrink-0 cursor-pointer"
@@ -173,11 +235,17 @@ function confirmDelete(run: Run) {
         <div
           v-if="run.status === 'running' && eta && eta.fraction != null"
           class="absolute left-0 bottom-0 h-0.5 rounded-r-full transition-[width] duration-700 ease-out pointer-events-none"
-          :style="{ width: `${Math.max(2, eta.fraction * 100)}%`, background: runColor(run.id) }"
+          :style="{
+            width: `${Math.max(2, eta.fraction * 100)}%`,
+            background: runColor(run.id),
+          }"
         />
       </div>
 
-      <div v-if="state.ready && visibleRuns.length === 0" class="px-2 py-8 text-center text-[13.5px] text-fg-dim">
+      <div
+        v-if="state.ready && visibleRuns.length === 0"
+        class="px-2 py-8 text-center text-[13.5px] text-fg-dim"
+      >
         {{ state.search ? 'No runs match the filter' : 'No runs yet' }}
       </div>
     </div>
