@@ -1,6 +1,6 @@
 ---
 name: pandm-track
-description: Record machine-learning experiment metrics, images, distributions, hyperparameters, and training progress to pandm — a local-first, account-free wandb/tensorboard alternative that writes to a `.pandm/` SQLite + PNG store. Use when instrumenting a training or evaluation loop, logging scalar metrics or images from a Python script, building richer charts (multi-line panels, confidence bands, bar charts, histograms — especially for RL), reporting an ETA, or saving a run's config so it can later be compared in the pandm dashboard.
+description: Record machine-learning experiment metrics, images, distributions, hyperparameters, and training progress to pandm — a local-first, account-free wandb/tensorboard alternative that writes to a `.pandm/` SQLite + PNG store. Use whenever you write OR edit pandm instrumentation: instrumenting a training/eval loop, logging scalar metrics or images, adding/renaming/regrouping a logged metric, changing what a script reports, shaping how a chart renders (titles, subtitles, units, axis labels, panels, confidence bands, bar/histogram charts — especially for RL), reporting an ETA, or saving a run's config to compare in the dashboard. Read this before touching any `pandm.init` / `run.log` / `run.define_metric` call — it sets the titling discipline every run and every metric needs.
 ---
 
 # Recording experiments with pandm
@@ -19,7 +19,8 @@ import pandm
 
 run = pandm.init(
     project="mnist",
-    name="lr1e-3-bs64",                    # recommended: a short name that says what's unique about this run (see Naming below)
+    name="lr1e-3-bs64",                    # TITLE: what's unique about this run
+    description="基线：小 LR + 大 batch，验证早期 loss 是否更稳",  # SUBTITLE — see "Title everything"
     config={"lr": 1e-3, "batch_size": 64}, # hyperparameters — anything JSON-able
     total_steps=1000,                      # optional; lets the dashboard show an ETA
 )
@@ -38,6 +39,42 @@ on an exception) even if the loop raises:
 with pandm.init(project="mnist", config={"lr": 1e-3}) as run:
     run.log({"loss": 0.5})
 ```
+
+## Title everything — the first job, not the last
+
+A chart nobody can read is wasted compute. **Every run and every metric needs a
+title (what it is) and a subtitle (what it means)** — fill them in *as* you
+instrument, not "later". This is the difference between a dashboard that explains
+itself weeks later, next to ten sibling runs, and a wall of `metric_3` lines.
+
+|        | Title (what it is)                                                        | Subtitle (what it means)                                          |
+|--------|---------------------------------------------------------------------------|------------------------------------------------------------------|
+| **Run**    | `name=` — what's *unique* about this run (the swept knob, the variant, the intent), never the project | `description=` — the one question this run answers / hypothesis it tests |
+| **Metric** | the `key`, namespaced with `/` (`train/loss`); `series=` sets its legend label inside a panel | `define_metric(key, description=...)` — what it measures and which way is good |
+
+```python
+run = pandm.init(
+    project="mahjong",
+    name="reward-shaping-v2",                       # TITLE: what's unique about this run
+    description="加入向听数势能塑形，验证是否加速早期收敛",  # SUBTITLE: the question it answers
+    config={"shaping_coef": 0.3, "lr": 3e-4},
+)
+run.define_metric("eval/win_rate", unit="percent", goal="max", baseline=0.25,
+                  description="对随机对手的对局胜率（0.25 为四人随机基线）")  # metric subtitle
+```
+
+Three rules that make the titles actually useful:
+
+1. **Write subtitles in the language you're conversing with the user in** — they
+   exist for that reader, not English-by-default.
+2. **A subtitle must say what the title can't** — the hypothesis, the baseline, the
+   unit's meaning, which direction is good. If it just restates the name, drop it.
+3. **No `name=` → a timestamp.** pandm falls back to `2026-06-10_14:30:52` — unique
+   but unreadable side by side. Always pass a name.
+
+Everything below is *how* to render well once the titles are in place. Reach for the
+axis / unit / panel / band options in *Shaping how a metric renders* — but a correct
+title and subtitle come first.
 
 ## API
 
@@ -140,11 +177,8 @@ run.log_histogram("dist/episode_reward", episode_rewards, step=step, bins=30,
 For a band helper that aggregates raw samples into `mean/_lo/_hi`, and a full RL
 example exercising all four, see `examples/train_demo.py` (`simulate_rl`).
 
-> Write `description`s in the **language you're conversing with the user in**, not
-> English by default — they exist for that reader. `init(description=...)` says what a
-> run tests (the idea, the key knob, the dataset); `define_metric(description=...)` says
-> what a metric measures and which way is good. One plain line; the name, axis, and
-> config already carry the mechanics, so don't restate them.
+> Every `define_metric` example above carries a `description` for a reason — see
+> *Title everything*. The subtitle is part of declaring the metric, not an afterthought.
 
 ## Clean up throwaway runs
 
@@ -164,12 +198,10 @@ pandm: run "baseline" [a1b2c3d4] -> https://pandm.jannchie.com/?project=mnist&ru
 
 ## Behaviour that matters
 
-- **Name every run distinctively.** Without `name=` pandm falls back to a timestamp
-  (`2026-06-10_14:30:52`) — unique, but unreadable side by side. Pass a short name for
-  what sets this run apart: the swept knob (`lr-3e-4`, `bs-128`), the variant
-  (`resnet50-aug`, `no-warmup`), or the intent (`fix-grad-clip`). Re-running the same
-  config? Add a suffix (`lr-3e-4-v2`). Runs are keyed by id, not name, so collisions are
-  legal — but the dashboard lists by name, so they cost you at a glance.
+- **Run names need only be distinctive, not unique.** Runs are keyed by id, so two
+  runs may share a name — but the dashboard lists by name, so a collision costs you at
+  a glance; add a suffix when re-running the same config (`lr-3e-4-v2`). For *what* to
+  name a run, see *Title everything*.
 - **`step` is optional.** Omit it and pandm uses a per-run counter (+1 per `log()` call).
   Pass it and keep it monotonic per key — the dashboard plots against it.
 - **Group keys with `/`.** `train/loss`, `val/loss`, `lr` — the dashboard groups by the
