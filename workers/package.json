@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "pnpm -C ../web install && pnpm -C ../web build && wrangler deploy",
+    "migrate": "wrangler d1 migrations apply pandm --remote",
+    "deploy": "pnpm run migrate && pnpm -C ../web install && pnpm -C ../web build && wrangler deploy",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
