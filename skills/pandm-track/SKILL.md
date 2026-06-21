@@ -252,5 +252,17 @@ pandm ui                 # http://127.0.0.1:7878 — live charts
 
 A full working example lives in the repo at `examples/train_demo.py`. To read
 runs back programmatically, use the **pandm-inspect** skill.
-</content>
-</invoke>
+
+## Before you finish — self-check
+
+Run this checklist before you call the instrumentation done:
+
+- [ ] **Every run** has a `name` (distinctive) *and* a `description` (what it tests)?
+- [ ] **Every metric** that isn't self-explanatory has `define_metric(description=...)`?
+- [ ] **Every proportion** (accuracy, win/success rate) uses `unit="percent"`, and every known-range metric pins `min`/`max`?
+- [ ] **Related keys** grouped into one `panel=` instead of N lonely charts?
+- [ ] Titles & subtitles in **the user's language**, each subtitle saying what the name can't?
+- [ ] **Throwaway / smoke-test runs deleted** (`run.delete()` or `pandm delete <id> -y`)?
+
+Any unchecked box: fix it now — far cheaper than re-opening the dashboard weeks later
+wondering what `metric_3` was.
