@@ -31,4 +31,15 @@ artifacts = ["src/pandm/static/**"]
 packages = ["src/pandm"]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.15"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+src = ["src", "tests", "examples"]
+
+[tool.ruff.lint]
+# Pyflakes (F) + pycodestyle (E) + import sorting (I).
+# E501 is left to the formatter; long docstrings/comments are intentional.
+select = ["E", "F", "I"]
+ignore = ["E501"]

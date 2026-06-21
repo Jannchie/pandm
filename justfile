@@ -13,6 +13,16 @@ typecheck:
 # 单测 + 类型检查
 check: test typecheck
 
+# 代码检查：ruff (python) + oxlint (前端)
+lint:
+    uv run ruff check src tests examples
+    pnpm -C web lint
+
+# 格式化：ruff format (python) + prettier (前端)
+fmt:
+    uv run ruff format src tests examples
+    pnpm -C web format
+
 # 构建前端到 src/pandm/static（打包进 wheel 前必跑）
 web-build:
     pnpm -C web build
