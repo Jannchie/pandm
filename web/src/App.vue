@@ -29,7 +29,7 @@ onMounted(() => bootstrap())
       <main class="flex-1 min-w-0 flex flex-col">
         <!-- tab bar + per-tab controls -->
         <div
-          class="flex flex-col h-[37px] md:flex-row md:items-center border-b border-border shrink-0"
+          class="flex flex-col md:flex-row md:h-[37px] md:items-center border-b border-border shrink-0"
         >
           <!-- tabs: own row on mobile -->
           <div
