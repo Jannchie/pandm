@@ -1,12 +1,15 @@
 ---
 name: pandm-inspect
-description: Query and analyze machine-learning experiments tracked by pandm — list runs, read a run's config/summary/metrics, compare runs to find the best hyperparameters, read full metric series, and locate logged images. Use when the user asks about past pandm experiments, wants to compare runs, pick a winner, inspect a metric over time, or analyze results stored in a `.pandm/` directory.
+description: Query and analyze machine-learning experiments tracked by pandm — list runs, read a run's config/summary/metrics, compare runs to find the best hyperparameters, read full metric series, and locate logged images. Reads a local `.pandm/` SQLite + PNG store directly; fully offline, no network, account, or server required. Use when the user asks about past pandm experiments, wants to compare runs, pick a winner, inspect a metric over time, or analyze results stored in a `.pandm/` directory.
 ---
 
 # Inspecting pandm experiments
 
 pandm stores every run as plain SQLite + PNG under a `.pandm/` directory
-(default `./.pandm`, overridable with `--dir` or `$PANDM_DIR`):
+(default `./.pandm`, overridable with `--dir` or `$PANDM_DIR`). **Everything you
+need is in that local directory** — inspecting runs never touches the network,
+needs no account, and works fully offline (even for runs that were also mirrored
+to a shared server):
 
 ```
 .pandm/

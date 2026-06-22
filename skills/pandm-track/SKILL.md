@@ -1,16 +1,30 @@
 ---
 name: pandm-track
-description: Record machine-learning experiment metrics, images, distributions, hyperparameters, and training progress to pandm — a local-first, account-free wandb/tensorboard alternative that writes to a `.pandm/` SQLite + PNG store. Use whenever you write OR edit pandm instrumentation: instrumenting a training/eval loop, logging scalar metrics or images, adding/renaming/regrouping a logged metric, changing what a script reports, shaping how a chart renders (titles, subtitles, units, axis labels, panels, confidence bands, bar/histogram charts — especially for RL), reporting an ETA, or saving a run's config to compare in the dashboard. Read this before touching any `pandm.init` / `run.log` / `run.define_metric` call — it sets the titling discipline every run and every metric needs.
+description: Record machine-learning experiment metrics, images, distributions, hyperparameters, and training progress to pandm — a local-first, offline-by-default, account-free wandb/tensorboard alternative that writes to a local `.pandm/` SQLite + PNG store. Needs no network, server, login, or API key; a shared server is strictly optional, and once one is configured the same code auto-pushes to it in the background. Use whenever you write OR edit pandm instrumentation: instrumenting a training/eval loop, logging scalar metrics or images, adding/renaming/regrouping a logged metric, changing what a script reports, shaping how a chart renders (titles, subtitles, units, axis labels, panels, confidence bands, bar/histogram charts — especially for RL), reporting an ETA, or saving a run's config to compare in the dashboard. Read this before touching any `pandm.init` / `run.log` / `run.define_metric` call — it sets the titling discipline every run and every metric needs.
 ---
 
 # Recording experiments with pandm
 
 pandm tracks ML runs locally: `pandm.init()` starts a run, `run.log()` writes
 scalar metrics, `run.log_image()` writes images. Everything lands in `.pandm/`
-next to the script (plain SQLite + PNG, no account, no daemon). The same code
-reports to a shared server when one env var is set — see *Modes* below.
+next to the script (plain SQLite + PNG, no account, no daemon).
 
-Requires the package: `pip install pandm` (import name is `pandm`).
+**No network is required.** pandm runs entirely offline by default — no server,
+no login, no API key, no internet. It works the same on an air-gapped box as on
+a laptop. The local `.pandm/` write is the source of truth and never depends on a
+network.
+
+**If a remote is configured, the same code also pushes to it — automatically.**
+Once a remote is available (you ran `pandm login <url>` on the machine, or set
+`PANDM_REMOTE`/`PANDM_API_KEY`), every run dual-writes: local first, then synced
+to the shared server in the background, backfilling anything logged while
+offline. You don't change the training code or re-opt-in per run — pandm just
+uses the remote when it's there and stays fully local when it isn't. So: cloud is
+opt-in to *set up*, but automatic once set up. Don't add cloud setup, network
+checks, or credentials yourself unless the user asks for the shared dashboard —
+see *Modes* below.
+
+Requires only the package: `pip install pandm` (import name is `pandm`).
 
 ## Minimal loop
 
