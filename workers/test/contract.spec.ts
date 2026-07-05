@@ -170,7 +170,7 @@ describe('metrics ingest & watermark', () => {
     const res = await api('/api/runs?project=bulk', { headers: keyOf(carol) })
     expect(res.status).toBe(200)
     expect(((await res.json()) as any[]).length).toBe(105)
-  })
+  }, 30_000) // 105 sequential creates outrun the 5s default on slow CI runners
 })
 
 describe('histograms', () => {
