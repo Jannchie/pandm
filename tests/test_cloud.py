@@ -247,9 +247,9 @@ def test_offline_then_backfill(local_dir, server):
 
     remote_run = client.get(f"/api/runs/{run.id}").json()
     assert remote_run["status"] == "finished"
-    assert remote_run["created_at"] == pytest.approx(
-        local.get_run(run.id)["created_at"]
-    )  # type: ignore[index]
+    local_run = local.get_run(run.id)
+    assert local_run is not None
+    assert remote_run["created_at"] == pytest.approx(local_run["created_at"])
     assert client.get(f"/api/runs/{run.id}/metrics/loss").json()["values"] == [
         3.0,
         2.0,
