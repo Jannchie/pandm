@@ -1,13 +1,40 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { fmtStep } from '../fmt'
 import { state } from '../store'
+
+const item = computed(() => {
+  const lb = state.lightbox
+  return lb ? (lb.items[lb.idx] ?? null) : null
+})
+
+const sub = computed(() =>
+  item.value
+    ? `step ${fmtStep(item.value.step)}${item.value.caption ? ` · ${item.value.caption}` : ''}`
+    : '',
+)
 
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     state.lightbox = null
     state.expandedChart = null
   }
+  const lb = state.lightbox
+  if (!lb) return
+  if (e.key === 'ArrowLeft') lb.idx = Math.max(0, lb.idx - 1)
+  if (e.key === 'ArrowRight') lb.idx = Math.min(lb.items.length - 1, lb.idx + 1)
 }
+
+// stepping shouldn't flash: warm the browser cache for the neighbours
+watch(
+  () => [state.lightbox, state.lightbox?.idx] as const,
+  ([lb]) => {
+    if (!lb) return
+    for (const n of [lb.items[lb.idx - 1], lb.items[lb.idx + 1]]) {
+      if (n) new Image().src = n.url
+    }
+  },
+)
 
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
@@ -21,9 +48,10 @@ const dragging = ref(false)
 const MIN_SCALE = 0.25
 const MAX_SCALE = 12
 
-// fresh image starts back at fit-to-screen
+// a fresh viewer starts back at fit-to-screen; sliding between steps keeps the
+// current pan/zoom so the same crop can be compared across steps
 watch(
-  () => state.lightbox?.url,
+  () => state.lightbox,
   () => {
     scale.value = 1
     tx.value = 0
@@ -147,7 +175,8 @@ function onPointerUp(e: PointerEvent) {
           class="absolute inset-0 flex items-center justify-center p-4 sm:p-10 pointer-events-none"
         >
           <img
-            :src="state.lightbox.url"
+            v-if="item"
+            :src="item.url"
             class="max-w-full max-h-full object-contain rounded-lg shadow-2xl will-change-transform"
             draggable="false"
             :style="{
@@ -183,13 +212,29 @@ function onPointerUp(e: PointerEvent) {
         </button>
 
         <div
-          class="absolute bottom-0 inset-x-0 pb-4 pt-10 px-4 text-center bg-gradient-to-t from-black/70 to-transparent pointer-events-none"
+          class="absolute bottom-0 inset-x-0 pb-4 pt-10 px-4 flex flex-col items-center gap-2 bg-gradient-to-t from-black/70 to-transparent pointer-events-none"
         >
-          <div class="text-[14.5px] text-fg">
-            {{ state.lightbox.title }}
+          <!-- step slider: its own pointer island, so dragging it never pans -->
+          <div
+            v-if="state.lightbox.items.length > 1"
+            class="flex items-center gap-2.5 w-full max-w-100 pointer-events-auto cursor-default"
+            @pointerdown.stop
+            @dblclick.stop
+          >
+            <input
+              v-model.number="state.lightbox.idx"
+              type="range"
+              :min="0"
+              :max="state.lightbox.items.length - 1"
+              step="1"
+              class="flex-1"
+            />
           </div>
-          <div class="text-[13px] text-fg-dim mt-0.5">
-            {{ state.lightbox.sub }}
+          <div class="text-center">
+            <div class="text-[14.5px] text-fg">
+              {{ state.lightbox.title }}
+            </div>
+            <div class="text-[13px] text-fg-dim mt-0.5">{{ sub }}</div>
           </div>
         </div>
       </div>

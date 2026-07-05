@@ -33,7 +33,13 @@ export const state = reactive({
   xRange: null as [number, number] | null, // shared x zoom (units follow xAxis); null = full range
   logScale: false,
   expandedChart: null as string | null,
-  lightbox: null as null | { url: string; title: string; sub: string },
+  // fullscreen media viewer: the full step series for one (run, key) plus the
+  // index in view, so the modal can slide across steps without reopening
+  lightbox: null as null | {
+    title: string
+    items: { url: string; step: number; caption: string | null }[]
+    idx: number
+  },
 })
 
 // the shared zoom's units differ per x-axis mode (step vs ms vs elapsed seconds),

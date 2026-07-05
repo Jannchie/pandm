@@ -82,10 +82,14 @@ const groups = computed(() => {
 })
 
 function open(run: Run, item: MediaItem) {
+  // hand the viewer the whole step series for this (run, key) so it can slide
+  const series = (mediaByRun[run.id] ?? [])
+    .filter((m) => m.key === item.key)
+    .sort((a, b) => a.step - b.step)
   state.lightbox = {
-    url: item.url,
     title: `${run.name} · ${item.key}`,
-    sub: `step ${fmtStep(item.step)}${item.caption ? ` · ${item.caption}` : ''}`,
+    items: series.map((m) => ({ url: m.url, step: m.step, caption: m.caption })),
+    idx: Math.max(0, series.findIndex((m) => m.filename === item.filename)),
   }
 }
 </script>
