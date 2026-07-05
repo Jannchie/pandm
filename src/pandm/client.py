@@ -60,6 +60,7 @@ class RemoteBackend:
             transport=transport,
         )
         self._down_until = 0.0
+        self.last_ok = 0.0  # monotonic time of the last request the server acked
         self._deadline: float | None = (
             None  # set by deadline(): a wall-clock cap on a burst of calls
         )
@@ -104,6 +105,7 @@ class RemoteBackend:
             try:
                 resp = self._client.request(method, url, **kwargs)
                 resp.raise_for_status()
+                self.last_ok = time.monotonic()
                 return resp
             except Exception as exc:  # noqa: BLE001 — network errors of all stripes
                 last_exc = exc

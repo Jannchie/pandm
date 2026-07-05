@@ -135,6 +135,42 @@ def test_dual_write_histograms(local_dir, server):
     assert series["steps"] == [0, 1, 2] and series["counts"][0] == [1, 2]
 
 
+class RecordingTransport(httpx.BaseTransport):
+    """Passes requests through while recording their paths."""
+
+    def __init__(self, inner: httpx.BaseTransport):
+        self.inner = inner
+        self.paths: list[str] = []
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        self.paths.append(request.url.path)
+        return self.inner.handle_request(request)
+
+
+def test_idle_uploader_still_heartbeats(local_dir, server, monkeypatch):
+    """A pump with nothing to push makes no server contact, so it must not count
+    as one: during a quiet stretch (long epoch, validation) the uploader still has
+    to beat remotely, or the server presumes the run crashed."""
+    client, transport = server
+    recorder = RecordingTransport(transport)
+    monkeypatch.setattr("pandm.sync._PUMP_INTERVAL", 0.02)
+    monkeypatch.setattr("pandm.sync._REMOTE_HEARTBEAT_EVERY", 0.1)
+
+    backend = DualBackend(local_dir, SERVER_URL, None, transport=recorder)
+    run = Run(backend, project="proj", name="quiet", config={})
+    run.log({"loss": 1.0}, step=0)
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if any(p.endswith("/heartbeat") for p in recorder.paths):
+            break
+        time.sleep(0.02)  # quiet stretch: nothing logged, pump drains empty
+    assert any(p.endswith("/heartbeat") for p in recorder.paths)
+
+    run.finish()
+    assert client.get(f"/api/runs/{run.id}").json()["status"] == "finished"
+
+
 def test_metric_meta_pushed_live(server):
     """define_metric reaches the server while the run is still running — not just at
     finish. RemoteBackend.set_metric_meta POSTs immediately, mirroring progress."""

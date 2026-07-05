@@ -107,7 +107,6 @@ class Uploader:
         self.owner = _lease_owner()
         self._wake = threading.Event()
         self._stop = threading.Event()
-        self._last_contact = 0.0
         self._pending_progress: tuple[float, float | None, float] | None = (
             None  # latest unpushed (current, total, ts)
         )
@@ -146,7 +145,6 @@ class Uploader:
                 self._pending_progress == prog
             ):  # leave a newer value queued for the next pump
                 self._pending_progress = None
-            self._last_contact = time.monotonic()
 
     def _push_meta(self) -> None:
         meta = self._pending_meta
@@ -155,15 +153,11 @@ class Uploader:
         if self.remote.set_metric_meta(self.run_id, meta):
             if self._pending_meta == meta:  # leave newer specs queued for the next pump
                 self._pending_meta = None
-            self._last_contact = time.monotonic()
 
     def _pump(self) -> bool:
         if not self.store.claim_sync_lease(self.run_id, self.owner, _LEASE_TTL):
             return False  # someone else (pandm sync?) is pushing this run
-        drained = pump_run(self.store, self.remote, self.run_id)
-        if drained:
-            self._last_contact = time.monotonic()
-        return drained
+        return pump_run(self.store, self.remote, self.run_id)
 
     def _loop(self) -> None:
         project, name, config, created_at, description, tags, group = self._create
@@ -177,10 +171,12 @@ class Uploader:
                 self._pump()
                 self._push_progress()
                 self._push_meta()  # define_metric specs, pushed live like progress
-                # keep the server's staleness detection fed during quiet stretches
-                if time.monotonic() - self._last_contact >= _REMOTE_HEARTBEAT_EVERY:
-                    if self.remote.heartbeat(self.run_id, time.time()):
-                        self._last_contact = time.monotonic()
+                # keep the server's staleness detection fed during quiet stretches.
+                # gate on the remote's last *acked* request — an empty pump makes no
+                # server contact, so it must not count as one (else a quiet run
+                # never beats and the server shows it as crashed)
+                if time.monotonic() - self.remote.last_ok >= _REMOTE_HEARTBEAT_EVERY:
+                    self.remote.heartbeat(self.run_id, time.time())
             except Exception:  # noqa: BLE001 — sync must never kill training
                 pass
 
