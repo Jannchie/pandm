@@ -26,6 +26,8 @@ export const state = reactive({
   sidebarWidth: 280, // desktop sidebar width in px, drag-resizable
   tab: 'metrics' as 'metrics' | 'media' | 'table',
   columns: 0, // grid columns for metrics/media, 0 = auto
+  mediaSteps: [] as number[], // union of logged media steps, kept fresh by MediaPanel
+  mediaIdx: 0, // index into mediaSteps, driven by the toolbar step slider
   smoothing: 0,
   xAxis: 'step' as 'step' | 'time' | 'rtime', // rtime = elapsed since each run's start
   xRange: null as [number, number] | null, // shared x zoom (units follow xAxis); null = full range

@@ -8,6 +8,7 @@ import MetricsPanel from './components/MetricsPanel.vue'
 import Sidebar from './components/Sidebar.vue'
 import TablePanel from './components/TablePanel.vue'
 import TopBar from './components/TopBar.vue'
+import { fmtStep } from './fmt'
 import { bootstrap, selectedRuns, state } from './store'
 
 const TABS = [
@@ -55,10 +56,44 @@ onMounted(() => bootstrap())
           <!-- controls: own row on mobile, right-aligned on desktop -->
           <div
             class="items-center px-2 min-h-9 md:h-9 flex-wrap gap-y-1 md:flex-nowrap md:flex md:flex-1 md:min-w-0 md:overflow-x-auto"
-            :class="state.tab === 'metrics' ? 'flex' : 'hidden'"
+            :class="state.tab !== 'table' ? 'flex' : 'hidden'"
           >
             <!-- pushes controls right on desktop; on mobile they left-align and wrap -->
             <div class="hidden md:block flex-1 min-w-2" />
+
+            <div
+              v-if="state.tab === 'media' && state.mediaSteps.length > 1"
+              class="flex items-center gap-2 mr-3 shrink-0"
+              title="media step"
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                class="text-fg-dim"
+              >
+                <path
+                  d="M4 12h16M8 6l-4 6 4 6M16 6l4 6-4 6"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <input
+                v-model.number="state.mediaIdx"
+                type="range"
+                :min="0"
+                :max="state.mediaSteps.length - 1"
+                step="1"
+                class="w-32 md:w-40"
+              />
+              <span
+                class="text-[12.5px] text-fg-dim tabular-nums whitespace-nowrap"
+                >step {{ fmtStep(state.mediaSteps[state.mediaIdx] ?? 0) }}</span
+              >
+            </div>
 
             <div
               v-if="state.tab !== 'table'"

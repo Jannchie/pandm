@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch, watchEffect } from 'vue'
+import { computed, reactive, watch, watchEffect } from 'vue'
 import type { MediaItem, Run } from '../api'
 import { runColor } from '../colors'
 import { fmtStep } from '../fmt'
@@ -18,7 +18,9 @@ watchEffect(() => {
 })
 
 // one flat grid over every (run, key) pair, driven by a single step slider —
-// per-key sections boxed each image into its own row and needed N sliders
+// per-key sections boxed each image into its own row and needed N sliders.
+// the slider itself lives in the App toolbar (next to the columns control) so
+// scrolling the grid can't hide it; steps/index are shared through the store
 
 const steps = computed(() => {
   const set = new Set<number>()
@@ -28,18 +30,22 @@ const steps = computed(() => {
   return [...set].sort((a, b) => a - b)
 })
 
-const idx = ref(Math.max(0, steps.value.length - 1))
+state.mediaIdx = Math.max(0, steps.value.length - 1)
 
 // keep following the newest step while the user sits at the end of the slider
 watch(
   () => steps.value.length,
   (len, oldLen) => {
-    if (idx.value >= (oldLen ?? 0) - 1) idx.value = Math.max(0, len - 1)
-    idx.value = Math.min(idx.value, Math.max(0, len - 1))
+    if (state.mediaIdx >= (oldLen ?? 0) - 1) state.mediaIdx = Math.max(0, len - 1)
+    state.mediaIdx = Math.min(state.mediaIdx, Math.max(0, len - 1))
   },
 )
 
-const targetStep = computed(() => steps.value[idx.value] ?? 0)
+watchEffect(() => {
+  state.mediaSteps = steps.value
+})
+
+const targetStep = computed(() => steps.value[state.mediaIdx] ?? 0)
 
 // one section per selected run; headers only show once more than one is picked,
 // so a single run stays a plain flat grid
@@ -86,20 +92,6 @@ function open(run: Run, item: MediaItem) {
 
 <template>
   <div v-if="groups.length" class="p-4 flex flex-col gap-3">
-    <div v-if="steps.length > 1" class="flex items-center gap-2.5">
-      <input
-        v-model.number="idx"
-        type="range"
-        :min="0"
-        :max="steps.length - 1"
-        step="1"
-        class="flex-1 max-w-120"
-      />
-      <span class="text-[12.5px] text-fg-dim tabular-nums whitespace-nowrap"
-        >step {{ fmtStep(targetStep) }}</span
-      >
-    </div>
-
     <div class="flex flex-col gap-4">
       <section
         v-for="group in groups"
