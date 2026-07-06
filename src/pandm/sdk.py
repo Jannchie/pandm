@@ -16,14 +16,16 @@ background thread syncs to the server, backfilling whatever was logged offline.
 from __future__ import annotations
 
 import atexit
+import csv as _csv
 import dataclasses
+import functools
 import io
 import math
 import os
 import sys
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +63,19 @@ def _coerce_config(config: Any) -> dict[str, Any]:
     raise TypeError(
         f"config must be a dict, Mapping, dataclass, Namespace, or attribute object — got {type(config).__name__}"
     )
+
+
+def _coerce_scalars(values: Mapping[str, Any]) -> dict[str, float]:
+    """Keep only the entries that coerce to float; drop strings, None, empty cells.
+    NaN/Inf pass through here and are filtered later by :meth:`Run.log`. Shared by the
+    framework integrations and CSV ingestion, which all log scalars only."""
+    scalars: dict[str, float] = {}
+    for k, v in values.items():
+        try:
+            scalars[str(k)] = float(v)
+        except (TypeError, ValueError):
+            continue
+    return scalars
 
 
 def _print_run_banner(run: "Run", resolved: Any) -> None:
@@ -349,6 +364,11 @@ class Run:
         self._progress_current: float | None = None
         self._progress_total: float | None = float(total_steps) if total_steps else None
         self._progress_dirty = False
+        # ingest_csv cursors (rows already consumed, keyed by resolved path) and the
+        # background watch_csv tailers, so finish()/delete() can drain and stop them.
+        self._csv_cursors: dict[str, int] = {}
+        self._csv_lock = threading.Lock()
+        self._watchers: list[dict[str, Any]] = []
         # resume: "allow" reopens an existing run (else fresh); "must" requires it;
         # False refuses to reuse an existing id. The auto step counter continues
         # past the last logged step so a resumed loop doesn't overwrite history.
@@ -588,9 +608,135 @@ class Run:
             self.id, str(key), int(step), data, ext, caption, time.time()
         )
 
+    def ingest_csv(
+        self,
+        path: str | os.PathLike,
+        *,
+        step_column: str | None = None,
+        include: list[str] | None = None,
+        exclude: list[str] | None = None,
+        prefix: str = "",
+    ) -> int:
+        """Import metric rows from a CSV another (often closed-source) trainer writes.
+
+        Many frameworks — rfdetr, detectron2, YOLO — never let you inject a logger but
+        do dump a `metrics.csv` every epoch. Point pandm at it instead of fighting for a
+        logger seat: each new numeric row becomes a :meth:`log` call.
+
+            run.ingest_csv("output/metrics.csv", step_column="epoch")
+
+        Only rows appended since the last call are ingested (tracked by row count), so
+        calling it repeatedly — or via :meth:`watch_csv` — is safe and incremental. This
+        assumes existing rows are immutable and the file only grows at the bottom, which
+        holds for per-epoch metric logs (even when the whole table is rewritten each epoch).
+
+        `step_column` names the column to use as the metric step (e.g. `"epoch"`,
+        `"step"`); if omitted or unparseable, the run's auto counter is used. `include` /
+        `exclude` filter which *source* columns are logged (defaults to every numeric
+        column but `step_column`). `prefix` is prepended to every logged key
+        (e.g. `prefix="val/"`). Non-numeric or empty cells are skipped. Returns the number
+        of rows ingested this call."""
+        if self._finished:
+            raise RuntimeError(f"run {self.id} is already finished")
+        p = Path(path)
+        key = str(p.resolve())
+        with self._csv_lock:
+            cursor = self._csv_cursors.get(key, 0)
+            try:
+                text = p.read_text()
+            except FileNotFoundError:
+                return 0  # trainer hasn't written it yet — try again next poll
+            rows = list(_csv.DictReader(io.StringIO(text)))
+            new_rows = rows[cursor:]
+            self._csv_cursors[key] = len(rows)
+        ingested = 0
+        for row in new_rows:
+            step: int | None = None
+            if step_column is not None and (raw := row.get(step_column)) not in (None, ""):
+                try:
+                    step = int(float(raw))
+                except (TypeError, ValueError):
+                    step = None
+            candidates: dict[str, Any] = {}
+            for col, cell in row.items():
+                if col is None or col == step_column:
+                    continue
+                if include is not None and col not in include:
+                    continue
+                if exclude is not None and col in exclude:
+                    continue
+                candidates[prefix + col] = cell
+            metrics = _coerce_scalars(candidates)  # non-numeric/empty cells dropped
+            if metrics:
+                self.log(metrics, step=step)
+                ingested += 1
+        return ingested
+
+    def watch_csv(
+        self,
+        path: str | os.PathLike,
+        *,
+        interval: float = 5.0,
+        step_column: str | None = None,
+        include: list[str] | None = None,
+        exclude: list[str] | None = None,
+        prefix: str = "",
+    ) -> "Callable[[], None]":
+        """Tail a metrics CSV in a background thread, calling :meth:`ingest_csv` every
+        `interval` seconds until the run finishes. For live curves while a closed-source
+        trainer runs:
+
+            run = pandm.init(project="det")
+            run.watch_csv("output/metrics.csv", step_column="epoch")
+            rfdetr_model.train(...)      # writes metrics.csv; pandm follows it live
+            run.finish()
+
+        Returns a `stop()` callable; :meth:`finish` / :meth:`delete` also stop it and do a
+        final drain so no trailing rows are lost. Same filtering args as
+        :meth:`ingest_csv`."""
+        stop = threading.Event()
+        kwargs: dict[str, Any] = {
+            "step_column": step_column,
+            "include": include,
+            "exclude": exclude,
+            "prefix": prefix,
+        }
+
+        def _loop() -> None:
+            while not stop.wait(interval):
+                try:
+                    self.ingest_csv(path, **kwargs)
+                except Exception:  # noqa: BLE001 — a watcher must never kill training
+                    pass
+
+        thread = threading.Thread(target=_loop, daemon=True, name=f"pandm-csv-{self.id}")
+        entry = {"stop": stop, "thread": thread, "path": path, "kwargs": kwargs}
+        self._watchers.append(entry)
+        thread.start()
+        return functools.partial(self._stop_watcher, entry)
+
+    def _stop_watcher(self, entry: dict[str, Any]) -> None:
+        """Stop one watcher thread and drain any rows written since its last poll."""
+        entry["stop"].set()
+        thread = entry["thread"]
+        if thread.is_alive():
+            thread.join(timeout=5)
+        if entry in self._watchers:
+            self._watchers.remove(entry)
+        if not self._finished:  # final catch-up pass while logging is still allowed
+            try:
+                self.ingest_csv(entry["path"], **entry["kwargs"])
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _stop_watchers(self) -> None:
+        for entry in list(self._watchers):
+            self._stop_watcher(entry)
+
     def finish(self, status: str = "finished") -> None:
         if self._finished:
             return
+        self._stop_watchers()  # drain trailing CSV rows before the status flips
         self._finished = True
         self._stop.set()
         self._thread.join(timeout=5)
@@ -605,6 +751,7 @@ class Run:
         Made for throwaway smoke tests: `init` → `log` → `delete`, no need to capture
         the id for `pandm delete`. Stops background threads first; the Run is unusable
         afterward (don't log to it)."""
+        self._stop_watchers()
         self._finished = True
         self._stop.set()
         if self._thread.is_alive():

@@ -37,7 +37,7 @@ except ImportError as e:  # pragma: no cover
         "pandm.integrations.accelerate requires the `accelerate` package: pip install accelerate"
     ) from e
 
-from ..sdk import Run, init
+from ..sdk import Run, _coerce_scalars, init
 
 logger = logging.getLogger(__name__)
 
@@ -99,12 +99,7 @@ class PandmTracker(GeneralTracker):
     @on_main_process
     def log(self, values: dict, step: int | None = None, **kwargs: Any) -> None:  # noqa: ARG002 -- protocol signature
         """Log scalar metrics. Non-numeric values (e.g. strings) are skipped."""
-        scalars = {}
-        for k, v in values.items():
-            try:
-                scalars[k] = float(v)
-            except (TypeError, ValueError):
-                continue  # pandm stores scalar metrics only
+        scalars = _coerce_scalars(values)
         if scalars:
             self._ensure_run().log(scalars, step=step)
 
