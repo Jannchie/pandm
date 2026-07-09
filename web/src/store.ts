@@ -156,6 +156,7 @@ export async function setProject(project: string) {
 export async function removeRun(id: string) {
   await api.deleteRun(id)
   clearEta(id)
+  dropRunCaches(id)
   state.runs = state.runs.filter((r) => r.id !== id)
   state.selected = state.selected.filter((s) => s !== id)
   refresh()
@@ -163,7 +164,11 @@ export async function removeRun(id: string) {
 
 export async function removeProject(project: string) {
   await api.deleteProject(project)
-  for (const r of state.runs) if (r.project === project) clearEta(r.id)
+  for (const r of state.runs)
+    if (r.project === project) {
+      clearEta(r.id)
+      dropRunCaches(r.id)
+    }
   if (state.project === project) state.project = '' // refresh() falls back to the next project
   await refresh()
 }
@@ -418,6 +423,21 @@ function cached<T>(
 
 const seriesCache = new Map<string, CacheEntry<api.Series>>()
 const mediaCache = new Map<string, CacheEntry<api.MediaItem[]>>()
+
+// series/media/histogram entries are keyed by `${runId} ${key}` or plain runId;
+// deleting a run must release its (up to 6000-point) cached series, or a
+// long-lived tab only ever grows
+export function dropRunCaches(runId: string) {
+  for (const map of [seriesCache, mediaCache, histogramCache] as Map<
+    string,
+    unknown
+  >[]) {
+    for (const k of map.keys())
+      if (k === runId || k.startsWith(`${runId} `)) map.delete(k)
+  }
+  hkVersion.delete(runId)
+  delete histogramKeysByRun[runId]
+}
 
 // past this many client-side points, reset to a full (server-sampled) fetch
 const MAX_CLIENT_POINTS = 6000
