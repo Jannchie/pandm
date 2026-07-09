@@ -46,7 +46,7 @@ def lightning_module(monkeypatch):
     monkeypatch.setitem(sys.modules, "pytorch_lightning.loggers", loggers)
     monkeypatch.setitem(sys.modules, "pytorch_lightning.utilities", utilities)
     sys.modules.pop("pandm.integrations.lightning", None)
-    mod = importlib.import_module("pandm.integrations.lightning")
+    mod: Any = importlib.import_module("pandm.integrations.lightning")
     mod._Logger_base = Logger  # expose for the subclass assertion
     yield mod
     sys.modules.pop("pandm.integrations.lightning", None)
