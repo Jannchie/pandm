@@ -454,12 +454,18 @@ export async function histogramSeries(db: D1Database, runId: string, key: string
 
 // ------------------------------------------------------------------- media
 
-export async function claimMediaSeq(db: D1Database, runId: string, mediaId: number): Promise<boolean> {
+/** Has this upload already been fully ingested? Read-only replay check — the
+ * watermark itself only advances via claimMediaSeq AFTER the bytes and the row
+ * are durable, so a failed upload can always be retried. */
+export async function mediaSeqDone(db: D1Database, runId: string, mediaId: number): Promise<boolean> {
   const wm = await db
     .prepare('SELECT last_media_id FROM sync_progress WHERE run_id = ?1')
     .bind(runId)
     .first<{ last_media_id: number }>()
-  if ((wm?.last_media_id ?? 0) >= mediaId) return false
+  return (wm?.last_media_id ?? 0) >= mediaId
+}
+
+export async function claimMediaSeq(db: D1Database, runId: string, mediaId: number): Promise<void> {
   await db
     .prepare(
       `INSERT INTO sync_progress (run_id, last_media_id) VALUES (?1, ?2)
@@ -467,26 +473,27 @@ export async function claimMediaSeq(db: D1Database, runId: string, mediaId: numb
     )
     .bind(runId, mediaId)
     .run()
-  return true
 }
+
+export const newMediaFilename = (key: string, step: number, ext: string) =>
+  `${slug(key)}_${String(step).padStart(8, '0')}_${crypto.randomUUID().slice(0, 6)}${ext}`
 
 export async function logMedia(
   db: D1Database,
   runId: string,
   key: string,
   step: number,
-  ext: string,
+  filename: string,
   caption: string | null,
   ts: number,
-): Promise<string> {
-  const filename = `${slug(key)}_${String(step).padStart(8, '0')}_${crypto.randomUUID().slice(0, 6)}${ext}`
+): Promise<void> {
   await db.batch([
     db
       .prepare('INSERT INTO media (run_id, key, step, filename, caption, ts) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
       .bind(runId, key, step, filename, caption, ts),
-    db.prepare('UPDATE runs SET updated_at = ?1 WHERE id = ?2').bind(ts, runId),
+    // data_rev keys the edge cache for the media list; updated_at is liveness
+    db.prepare('UPDATE runs SET updated_at = ?1, data_rev = ?1 WHERE id = ?2').bind(ts, runId),
   ])
-  return filename
 }
 
 export async function listMedia(db: D1Database, runId: string, key: string | null) {

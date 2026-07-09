@@ -245,19 +245,24 @@ app.post('/api/runs/:id/media', async (c) => {
   if (!entry || typeof entry !== 'object' || !('stream' in entry)) return detail(c, 422, 'file is required')
   const file = entry as File
   const mediaSeq = form.get('media_seq')
-  if (mediaSeq !== null && !(await db.claimMediaSeq(c.env.DB, runId, Number(mediaSeq)))) {
+  if (mediaSeq !== null && (await db.mediaSeqDone(c.env.DB, runId, Number(mediaSeq)))) {
     return c.json({ filename: null, skipped: true }) // replay of an already-ingested upload
   }
   const dot = file.name.lastIndexOf('.')
   const ext = (dot >= 0 ? file.name.slice(dot) : '.png').toLowerCase()
   const ts = form.get('ts') !== null ? Number(form.get('ts')) : Date.now() / 1000
-  const filename = await db.logMedia(
-    c.env.DB, runId, String(form.get('key') ?? ''), Number(form.get('step') ?? 0), ext,
-    String(form.get('caption') ?? '') || null, ts,
-  )
+  const filename = db.newMediaFilename(String(form.get('key') ?? ''), Number(form.get('step') ?? 0), ext)
+  // order matters: bytes -> row -> watermark. The watermark advances only once
+  // everything is durable, so a failure anywhere leaves the seq claimable and
+  // the client's retry re-uploads instead of being skipped (= a lost image).
   await c.env.MEDIA.put(`media/${runId}/${filename}`, file.stream(), {
     httpMetadata: { contentType: file.type || undefined },
   })
+  await db.logMedia(
+    c.env.DB, runId, String(form.get('key') ?? ''), Number(form.get('step') ?? 0), filename,
+    String(form.get('caption') ?? '') || null, ts,
+  )
+  if (mediaSeq !== null) await db.claimMediaSeq(c.env.DB, runId, Number(mediaSeq))
   return c.json({ filename })
 })
 
