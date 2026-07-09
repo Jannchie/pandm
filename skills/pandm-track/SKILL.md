@@ -300,6 +300,8 @@ run.finish()                                               # stops the watcher, 
 - `step_column=` names the step column (`"epoch"`, `"step"`); omit it to use the auto counter.
 - `include=` / `exclude=` filter source columns; `prefix=` namespaces the keys (`prefix="val/"`).
 - One-shot instead of live: `run.ingest_csv("output/metrics.csv", step_column="epoch")`.
+- No Python at all: `pandm ingest output/metrics.csv --step-column epoch` creates the
+  run and finishes it; add `--watch` to follow the file until Ctrl-C.
 - CSV columns still need titling — once the keys land, declare them with `define_metric`
   (`unit="percent"` for mAP-style ratios, `panel=` to group, a `description=`). See *Title everything*.
 

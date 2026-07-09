@@ -41,8 +41,10 @@ If none resolve, the data is still just files — fall back to raw SQL (bottom).
 ## Querying runs
 
 ```sh
+pandm projects --json                            # projects, run counts, last active
 pandm ls --json                                  # all runs, newest first
 pandm ls --project mnist --status finished --json
+pandm ls --tag baseline --tag lr-sweep --json    # runs carrying every listed tag
 pandm ls --sort-by val/acc --limit 5 --json      # 5 best by val/acc (max), best first
 pandm ls --sort-by loss:min --asc --json         # smallest loss first
 ```
@@ -59,10 +61,13 @@ call** — no series scan, no SQL `MAX()`/`GROUP BY`.
 pandm show <run_id> --json     # + metric_keys and media with absolute file paths
 pandm export <run_id> --json   # full metric series, all keys
 pandm export <run_id> -k train/loss -k val/loss > loss.csv   # CSV (key,step,value,ts)
+pandm export <run_id> --histograms --json                    # logged distributions
 ```
 
 `show --json` returns absolute `path`s for every logged image — open/Read those
-directly. `export` is the only way to get full per-step series.
+directly. `export` is the only way to get full per-step series; `--histograms`
+switches it to the binned distributions (`{steps, bins, counts}` per key in JSON,
+one row per bin in CSV: `key,step,bin_lo,bin_hi,count,ts`).
 
 ## Comparing runs
 
@@ -84,8 +89,12 @@ aligned to the `runs` array — `stats[k][i]` is `{min,max,last,count}` for run 
   training code wrote it. Prefer it over stitching per-key extrema when present.
 - **`status`** is computed on read: a `running` run whose heartbeat has been
   quiet for >60 s is reported as `crashed` (self-heals if the process resumes).
-  So a run can flip to `crashed` between two reads — don't cache it.
+  So a run can flip to `crashed` between two reads — don't cache it. A `crashed`
+  run with a null `finished_at` never called `finish()`; the verdict is only a
+  read-time inference until someone runs `pandm finish --stale`.
 - **`progress` / `progress_total`** drive the dashboard ETA; either may be null.
+- **`tags`** is a list of free-form labels and **`group`** buckets related runs
+  (a sweep, a multi-process job); both may be empty.
 
 ## Raw SQL — last resort only
 
@@ -98,7 +107,9 @@ SELECT run_id, MAX(value) AS best FROM metrics
 WHERE key = 'val/acc' GROUP BY run_id ORDER BY best DESC;
 ```
 
-Schema: `runs(id, project, name, status, config /*JSON*/, summary /*JSON*/,
-created_at, updated_at, finished_at, progress, progress_total)`,
+Schema: `runs(id, project, name, description, status, config /*JSON*/,
+summary /*JSON*/, tags /*JSON*/, group_name, created_at, updated_at, finished_at,
+progress, progress_total)`,
 `metrics(run_id, key, step, value, ts)`,
+`histograms(run_id, key, step, bins /*JSON*/, counts /*JSON*/, ts)`,
 `media(run_id, key, step, filename, caption, ts)` — file at `media/<run_id>/<filename>`.
