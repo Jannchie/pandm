@@ -244,6 +244,18 @@ describe('media via R2', () => {
     expect(await env.MEDIA.get(`media/del00001/${filename}`)).toBeNull()
   })
 
+  it('deletes a project with more than 100 runs (D1 bound-parameter chunking)', async () => {
+    const dan = await upsertUser(env.DB, 4, 'dan', 'Dan', null)
+    for (let i = 0; i < 105; i++) {
+      const id = `dchk${String(i).padStart(4, '0')}`
+      await post('/api/runs', { id, project: 'bigdoom', name: id }, keyOf(dan))
+    }
+    const res = await api('/api/projects/bigdoom', { method: 'DELETE', headers: keyOf(dan) })
+    expect(res.status).toBe(200)
+    expect((await api('/api/runs/dchk0000', { headers: keyOf(dan) })).status).toBe(404)
+    expect((await api('/api/runs/dchk0104', { headers: keyOf(dan) })).status).toBe(404)
+  }, 30_000)
+
   it('deleting a project removes its runs and R2 objects, scoped per user', async () => {
     await post('/api/runs', { id: 'dpa00001', project: 'doomed', name: 'a' }, keyOf(alice))
     await post('/api/runs', { id: 'dpa00002', project: 'doomed', name: 'b' }, keyOf(alice))

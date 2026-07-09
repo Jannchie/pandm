@@ -325,19 +325,24 @@ export async function deleteProject(
     .all<{ id: string }>()
   if (runs.length === 0) return { mediaKeys: [], runIds: [] }
   const runIds = runs.map((r) => r.id)
-  const placeholders = runIds.map((_, i) => `?${i + 1}`).join(',')
-  const { results: media } = await db
-    .prepare(`SELECT run_id, filename FROM media WHERE run_id IN (${placeholders})`)
-    .bind(...runIds)
-    .all<{ run_id: string; filename: string }>()
-  await db.batch([
-    db.prepare(`DELETE FROM metrics WHERE run_id IN (${placeholders})`).bind(...runIds),
-    db.prepare(`DELETE FROM histograms WHERE run_id IN (${placeholders})`).bind(...runIds),
-    db.prepare(`DELETE FROM media WHERE run_id IN (${placeholders})`).bind(...runIds),
-    db.prepare(`DELETE FROM sync_progress WHERE run_id IN (${placeholders})`).bind(...runIds),
-    db.prepare('DELETE FROM runs WHERE user_id = ?1 AND project = ?2').bind(userId, project),
-  ])
-  return { mediaKeys: media.map((m) => `media/${m.run_id}/${m.filename}`), runIds }
+  // IN(...) lists must respect the 100-bound-parameter cap — a project can
+  // easily hold more runs than that, so both the SELECT and the DELETEs chunk
+  const mediaKeys: string[] = []
+  const stmts: D1PreparedStatement[] = []
+  for (const batch of chunk(runIds, D1_MAX_PARAMS)) {
+    const placeholders = batch.map((_, i) => `?${i + 1}`).join(',')
+    const { results: media } = await db
+      .prepare(`SELECT run_id, filename FROM media WHERE run_id IN (${placeholders})`)
+      .bind(...batch)
+      .all<{ run_id: string; filename: string }>()
+    for (const m of media) mediaKeys.push(`media/${m.run_id}/${m.filename}`)
+    for (const table of ['metrics', 'histograms', 'media', 'sync_progress']) {
+      stmts.push(db.prepare(`DELETE FROM ${table} WHERE run_id IN (${placeholders})`).bind(...batch))
+    }
+  }
+  stmts.push(db.prepare('DELETE FROM runs WHERE user_id = ?1 AND project = ?2').bind(userId, project))
+  await db.batch(stmts)
+  return { mediaKeys, runIds }
 }
 
 // heartbeat / progress / finish now live in the RunStore DO (run_store.ts):

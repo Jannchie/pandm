@@ -322,7 +322,11 @@ app.delete('/api/runs/:id', async (c) => {
 app.delete('/api/projects/:name', async (c) => {
   const project = c.req.param('name')
   const { mediaKeys, runIds } = await db.deleteProject(c.env.DB, c.get('user').id, project)
-  await Promise.all(runIds.map((id) => store(c.env, id).deleteAll()))
+  // bounded fan-out: an unbounded Promise.all over every run's DO would blow
+  // the per-request subrequest budget on large projects
+  for (let i = 0; i < runIds.length; i += 20) {
+    await Promise.all(runIds.slice(i, i + 20).map((id) => store(c.env, id).deleteAll()))
+  }
   for (let i = 0; i < mediaKeys.length; i += 1000) await c.env.MEDIA.delete(mediaKeys.slice(i, i + 1000))
   return c.json({ deleted: true })
 })
