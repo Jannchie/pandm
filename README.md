@@ -44,10 +44,15 @@ with pandm.init(project="mnist") as run:
 Inspect, export or delete runs from the terminal:
 
 ```sh
-pandm ls                          # list runs
+pandm ls                          # list runs (-P project, -s status, -t tag, --sort-by val/acc)
+pandm projects                    # projects with run counts
 pandm show <run_id>               # config, summary, logged metrics
-pandm export <run_id> > data.csv  # full series as CSV (or --json, -k <key>)
-pandm delete <run_id> -y          # delete a run (local + cloud); -y skips the prompt
+pandm export <run_id> > data.csv  # full series as CSV (or --json, -k <key>, --histograms)
+pandm tag <run_id> best --rm wip  # add/remove tags
+pandm edit <run_id> --name gold   # rename, or move with -P <project>
+pandm finish --stale              # persist 'crashed' for runs whose process died
+pandm delete <run_id> -y          # delete runs (local + cloud); also -s crashed or -P <project>
+pandm ingest metrics.csv --step-column epoch --watch  # follow another trainer's CSV
 ```
 
 Data lives in `./.pandm` by default; override with `--dir` or `PANDM_DIR`.
@@ -92,6 +97,8 @@ Training scripts never change — sign in once per machine and `pandm.init()` du
 pandm login        # hosted cloud (pandm.jannchie.com); pass a URL for self-hosted
 python train.py    # local + cloud
 pandm sync         # backfill runs whose process already exited
+pandm pull         # download cloud runs on another machine
+pandm whoami       # who am I signed in as, and what's still unpushed
 ```
 
 `pandm login` uses device-flow approval (like `gh auth login`): it prints a URL

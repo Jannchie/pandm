@@ -427,6 +427,45 @@ class LocalStore:
             )
             self._db.commit()
 
+    def update_run_meta(
+        self,
+        run_id: str,
+        *,
+        name: str | None = None,
+        project: str | None = None,
+        description: str | None = None,
+        group: str | None = None,
+        tags: list[str] | None = None,
+    ) -> bool:
+        """Edit a run's descriptive fields after the fact (None = leave unchanged;
+        `tags` replaces the whole list, normalized). Returns False if the run
+        doesn't exist. Local-only: the server API has no edit endpoint yet, so a
+        synced run keeps its original metadata on the cloud copy."""
+        sets, params = [], []
+        if name is not None:
+            sets.append("name = ?")
+            params.append(name)
+        if project is not None:
+            sets.append("project = ?")
+            params.append(project)
+        if description is not None:
+            sets.append("description = ?")
+            params.append(description)
+        if group is not None:
+            sets.append("group_name = ?")
+            params.append(group or None)  # "" clears the group
+        if tags is not None:
+            sets.append("tags = ?")
+            params.append(json.dumps(_norm_tags(tags)))
+        if not sets:
+            return self.run_exists(run_id)
+        with self._lock:
+            cur = self._db.execute(
+                f"UPDATE runs SET {', '.join(sets)} WHERE id = ?", (*params, run_id)
+            )
+            self._db.commit()
+        return cur.rowcount > 0
+
     def finish_run(
         self, run_id: str, status: str = "finished", finished_at: float | None = None
     ) -> None:
@@ -858,6 +897,27 @@ class LocalStore:
         with self._lock:
             self._db.execute(
                 "INSERT OR IGNORE INTO sync_state (run_id) VALUES (?)", (run_id,)
+            )
+            self._db.commit()
+
+    def mark_fully_synced(self, run_id: str) -> None:
+        """Point every sync cursor at the current end of the run's data, so
+        `pandm sync` (even --all) has nothing to push. Used after `pandm pull`
+        writes a cloud run locally — the server already has that data."""
+        with self._lock:
+            self._db.execute(
+                "INSERT OR IGNORE INTO sync_state (run_id) VALUES (?)", (run_id,)
+            )
+            maxes = self._db.execute(
+                "SELECT (SELECT COALESCE(MAX(rowid), 0) FROM metrics WHERE run_id = :r) AS m,"
+                " (SELECT COALESCE(MAX(id), 0) FROM media WHERE run_id = :r) AS md,"
+                " (SELECT COALESCE(MAX(rowid), 0) FROM histograms WHERE run_id = :r) AS h",
+                {"r": run_id},
+            ).fetchone()
+            self._db.execute(
+                "UPDATE sync_state SET metrics_rowid = ?, media_id = ?,"
+                " histograms_rowid = ?, status_synced = 1 WHERE run_id = ?",
+                (maxes["m"], maxes["md"], maxes["h"], run_id),
             )
             self._db.commit()
 

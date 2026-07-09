@@ -18,7 +18,6 @@ from .storage import LocalStore, resolve_dir
 app = typer.Typer(
     help="pandm — beautiful, local-first experiment tracking.",
     no_args_is_help=True,
-    add_completion=False,
 )
 console = Console()
 
@@ -133,6 +132,9 @@ def list_runs(
     status: Optional[str] = typer.Option(
         None, "--status", "-s", help="Filter by status (running, finished, crashed)."
     ),
+    tags: Optional[list[str]] = typer.Option(
+        None, "--tag", "-t", help="Keep only runs carrying this tag (repeat to AND)."
+    ),
     sort_by: Optional[str] = typer.Option(
         None,
         "--sort-by",
@@ -152,6 +154,8 @@ def list_runs(
     runs = store.list_runs(project)
     if status:
         runs = [r for r in runs if r["status"] == status]
+    if tags:
+        runs = [r for r in runs if all(t in r["tags"] for t in tags)]
     runs = _sort_runs(runs, sort_by, ascending)
     if limit is not None:
         runs = runs[:limit]
@@ -168,7 +172,7 @@ def list_runs(
 
     status_style = {"running": "bold cyan", "finished": "green", "crashed": "red"}
     table = Table(box=None, header_style="bold dim", pad_edge=False)
-    for col in ("ID", "NAME", "PROJECT", "STATUS", "CREATED", "DURATION"):
+    for col in ("ID", "NAME", "PROJECT", "STATUS", "TAGS", "CREATED", "DURATION"):
         table.add_column(col)
     for run in runs:
         created = dt.datetime.fromtimestamp(run["created_at"]).strftime(
@@ -182,15 +186,76 @@ def list_runs(
             if hours
             else (f"{mins}m{secs:02d}s" if mins else f"{secs}s")
         )
+        run_status = run["status"]
+        if run_status == "running" and run["progress"] and run["progress_total"]:
+            run_status += f" {run['progress'] / run['progress_total']:.0%}"
         table.add_row(
             f"[dim]{run['id']}[/dim]",
             run["name"],
             run["project"],
-            f"[{status_style.get(run['status'], 'white')}]{run['status']}[/]",
+            f"[{status_style.get(run['status'], 'white')}]{run_status}[/]",
+            f"[dim]{', '.join(run['tags'])}[/dim]",
             created,
             duration,
         )
     console.print(table)
+
+
+@app.command()
+def projects(
+    as_json: bool = JsonOption,
+    directory: Optional[Path] = DirOption,
+) -> None:
+    """List projects with run counts, most recently active first."""
+    import datetime as dt
+
+    store = LocalStore(resolve_dir(directory))
+    rows = store.list_projects()
+    if as_json:
+        _emit_json(rows)
+        return
+    if not rows:
+        console.print(
+            "[dim]no runs yet — call pandm.init() in your training script[/dim]"
+        )
+        return
+    table = Table(box=None, header_style="bold dim", pad_edge=False)
+    for col in ("PROJECT", "RUNS", "LAST ACTIVE"):
+        table.add_column(col)
+    for row in rows:
+        table.add_row(
+            row["project"],
+            str(row["runs"]),
+            dt.datetime.fromtimestamp(row["last_active"]).strftime("%Y-%m-%d %H:%M"),
+        )
+    console.print(table)
+
+
+@app.command()
+def tag(
+    run_id: str,
+    add: Optional[list[str]] = typer.Argument(None, help="Tags to add."),
+    remove: Optional[list[str]] = typer.Option(
+        None, "--rm", help="Tags to remove (repeatable)."
+    ),
+    clear: bool = typer.Option(False, "--clear", help="Drop every tag first."),
+    directory: Optional[Path] = DirOption,
+) -> None:
+    """Add or remove tags on a run — `pandm tag <id> good-lr --rm wip`.
+
+    Edits local metadata only; a cloud copy keeps its original tags."""
+    store = LocalStore(resolve_dir(directory))
+    run = store.get_run(run_id)
+    if run is None:
+        console.print(f"[red]run {run_id} not found[/red]")
+        raise typer.Exit(1)
+    tags = [] if clear else list(run["tags"])
+    tags = [t for t in tags if t not in (remove or [])]
+    tags += [t for t in (add or []) if t not in tags]
+    store.update_run_meta(run_id, tags=tags)
+    updated = store.get_run(run_id)
+    shown = ", ".join(updated["tags"] if updated else tags) or "[dim](none)[/dim]"
+    console.print(f"{run['name']} [dim]({run_id})[/dim] tags: {shown}")
 
 
 @app.command()
@@ -266,9 +331,18 @@ def export(
     as_json: bool = typer.Option(
         False, "--json", help="Emit a JSON object instead of CSV rows."
     ),
+    histograms: bool = typer.Option(
+        False,
+        "--histograms",
+        help="Export logged distributions instead of scalar metrics.",
+    ),
     directory: Optional[Path] = DirOption,
 ) -> None:
-    """Export full metric series to stdout — CSV (key,step,value,ts) or JSON."""
+    """Export full metric series to stdout — CSV (key,step,value,ts) or JSON.
+
+    With --histograms, exports every binned distribution instead: JSON keeps the
+    raw {steps, bins, counts} arrays; CSV flattens to one row per bin
+    (key,step,bin_lo,bin_hi,count,ts)."""
     import csv
     import json
     import sys
@@ -277,6 +351,28 @@ def export(
     if store.get_run(run_id) is None:
         console.print(f"[red]run {run_id} not found[/red]")
         raise typer.Exit(1)
+
+    if histograms:
+        selected = (
+            list(keys) if keys else [k["key"] for k in store.histogram_keys(run_id)]
+        )
+        hists = {
+            k: store.histogram_series(run_id, k, max_steps=2**31) for k in selected
+        }
+        if as_json:
+            json.dump(hists, sys.stdout)
+            sys.stdout.write("\n")
+            return
+        writer = csv.writer(sys.stdout)
+        writer.writerow(["key", "step", "bin_lo", "bin_hi", "count", "ts"])
+        for k, s in hists.items():
+            for step, edges, counts, ts in zip(
+                s["steps"], s["bins"], s["counts"], s["ts"]
+            ):
+                for lo, hi, count in zip(edges, edges[1:], counts):
+                    writer.writerow([k, step, lo, hi, count, ts])
+        return
+
     selected = list(keys) if keys else [k["key"] for k in store.metric_keys(run_id)]
     series = {k: store.metric_series(run_id, k, max_points=2**31) for k in selected}
     if as_json:
@@ -287,6 +383,81 @@ def export(
     writer.writerow(["key", "step", "value", "ts"])
     for k, s in series.items():
         writer.writerows(zip([k] * len(s["steps"]), s["steps"], s["values"], s["ts"]))
+
+
+@app.command()
+def ingest(
+    csv_path: Path = typer.Argument(
+        ..., help="Metrics CSV another trainer writes (e.g. output/metrics.csv)."
+    ),
+    project: str = typer.Option("default", "--project", "-P"),
+    name: Optional[str] = typer.Option(
+        None, "--name", help="Run name (default: auto-generated)."
+    ),
+    step_column: Optional[str] = typer.Option(
+        None,
+        "--step-column",
+        help="Column holding the metric step (e.g. 'epoch'); omit for a row counter.",
+    ),
+    prefix: str = typer.Option(
+        "", "--prefix", help="Prepended to every metric key (e.g. 'val/')."
+    ),
+    include: Optional[list[str]] = typer.Option(
+        None, "--include", help="Only log these source columns (repeatable)."
+    ),
+    exclude: Optional[list[str]] = typer.Option(
+        None, "--exclude", help="Skip these source columns (repeatable)."
+    ),
+    tags: Optional[list[str]] = typer.Option(
+        None, "--tag", "-t", help="Tag the created run (repeatable)."
+    ),
+    watch: bool = typer.Option(
+        False, "--watch", help="Keep following the file for new rows until Ctrl-C."
+    ),
+    interval: float = typer.Option(
+        5.0, "--interval", help="Poll interval in seconds with --watch."
+    ),
+    directory: Optional[Path] = DirOption,
+) -> None:
+    """Turn a metrics CSV into a pandm run without writing Python.
+
+    One-shot by default: every numeric row becomes a logged step and the run
+    finishes. With --watch, the run stays live and new rows appear as the
+    trainer appends them — point it at the CSV before or during training."""
+    import threading as _threading
+
+    import pandm
+
+    if not watch and not csv_path.is_file():
+        console.print(f"[red]{csv_path} not found[/red]")
+        raise typer.Exit(1)
+    run = pandm.init(
+        project=project,
+        name=name,
+        config={"source_csv": str(csv_path)},
+        tags=list(tags) if tags else None,
+        directory=directory,
+    )
+    kwargs: dict = {
+        "step_column": step_column,
+        "include": list(include) if include else None,
+        "exclude": list(exclude) if exclude else None,
+        "prefix": prefix,
+    }
+    try:
+        if watch:
+            run.watch_csv(csv_path, interval=interval, **kwargs)
+            console.print(
+                f"[dim]following {csv_path} every {interval:g}s — Ctrl-C to finish[/dim]"
+            )
+            _threading.Event().wait()
+        else:
+            rows = run.ingest_csv(csv_path, **kwargs)
+            console.print(f"[green]{rows} rows ingested[/green] -> run {run.id}")
+    except KeyboardInterrupt:
+        console.print("[dim]stopping — draining trailing rows[/dim]")
+    finally:
+        run.finish()
 
 
 @app.command()
@@ -357,57 +528,150 @@ def compare(
     console.print(table)
 
 
+def _cloud_delete(creds: dict, path: str) -> bool:
+    """DELETE one resource on the signed-in server; 404 counts as already gone."""
+    import httpx
+
+    try:
+        resp = httpx.delete(
+            f"{creds['server']}{path}",
+            headers={"x-api-key": creds["api_key"]},
+            timeout=10,
+        )
+    except httpx.HTTPError as exc:
+        console.print(
+            f"[yellow]cloud delete failed ({exc}) — run pandm delete again later[/yellow]"
+        )
+        return False
+    if resp.status_code == 200:
+        return True
+    if resp.status_code != 404:  # 404 = never synced or already gone
+        console.print(f"[yellow]cloud delete failed: HTTP {resp.status_code}[/yellow]")
+    return False
+
+
 @app.command()
 def delete(
-    run_id: str,
+    run_ids: Optional[list[str]] = typer.Argument(None, help="Run ids to delete."),
+    project: Optional[str] = typer.Option(
+        None,
+        "--project",
+        "-P",
+        help="Delete a whole project (with --status: only its matching runs).",
+    ),
+    status: Optional[str] = typer.Option(
+        None, "--status", "-s", help="Delete runs with this status, e.g. crashed."
+    ),
     directory: Optional[Path] = DirOption,
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
     local_only: bool = typer.Option(
         False, "--local-only", help="Keep the cloud copy (if signed in)."
     ),
 ) -> None:
-    """Delete a run and its media files — locally and, when signed in, on the cloud server."""
+    """Delete runs and their media — by id, --project or --status.
+
+    Deletes locally and, when signed in, on the cloud server too
+    (--local-only keeps the cloud copy)."""
     from . import credentials
 
+    if run_ids and (project or status):
+        console.print("[red]give run ids or --project/--status filters, not both[/red]")
+        raise typer.Exit(2)
+    if not run_ids and not project and not status:
+        console.print(
+            "[red]nothing selected — give run ids, --project or --status[/red]"
+        )
+        raise typer.Exit(2)
+
     store = LocalStore(resolve_dir(directory))
-    run = store.get_run(run_id)
     creds = None if local_only else credentials.load()
-    if run is None and creds is None:
-        console.print(f"[red]run {run_id} not found[/red]")
-        raise typer.Exit(1)
-    name = run["name"] if run else run_id
-    if not yes and not typer.confirm(f"delete run {name} ({run_id})?"):
+
+    if project and not status:  # whole project: one local + one cloud call
+        count = len(store.list_runs(project))
+        if count == 0 and creds is None:
+            console.print(f"[red]no runs in project {project}[/red]")
+            raise typer.Exit(1)
+        if not yes and not typer.confirm(
+            f"delete project {project} ({count} local runs)?"
+        ):
+            raise typer.Exit(0)
+        store.delete_project(project)
+        console.print(f"[dim]deleted {count} runs locally[/dim]")
+        if creds and _cloud_delete(creds, f"/api/projects/{project}"):
+            console.print(f"[dim]deleted project {project} on {creds['server']}[/dim]")
+        return
+
+    if run_ids:
+        targets = list(run_ids)
+    else:
+        targets = [
+            r["id"]
+            for r in store.list_runs(project)
+            if status is None or r["status"] == status
+        ]
+        if not targets:
+            console.print("[dim]no matching runs[/dim]")
+            return
+    if len(targets) == 1:
+        run = store.get_run(targets[0])
+        label = f"run {run['name'] if run else targets[0]} ({targets[0]})"
+    else:
+        label = f"{len(targets)} runs"
+    if not yes and not typer.confirm(f"delete {label}?"):
         raise typer.Exit(0)
 
-    deleted = False
-    if run is not None:
-        store.delete_run(run_id)
-        deleted = True
-        console.print(f"[dim]deleted {run_id} locally[/dim]")
-    if creds:
-        import httpx
+    missed = []
+    for rid in targets:
+        deleted = False
+        if store.run_exists(rid):
+            store.delete_run(rid)
+            deleted = True
+            console.print(f"[dim]deleted {rid} locally[/dim]")
+        if creds and _cloud_delete(creds, f"/api/runs/{rid}"):
+            deleted = True
+            console.print(f"[dim]deleted {rid} on {creds['server']}[/dim]")
+        if not deleted:
+            missed.append(rid)
+    if missed:
+        console.print(f"[red]not found: {', '.join(missed)}[/red]")
+        raise typer.Exit(1)
 
-        try:
-            resp = httpx.delete(
-                f"{creds['server']}/api/runs/{run_id}",
-                headers={"x-api-key": creds["api_key"]},
-                timeout=10,
-            )
-        except httpx.HTTPError as exc:
-            console.print(
-                f"[yellow]cloud delete failed ({exc}) — run pandm delete again later[/yellow]"
-            )
-        else:
-            if resp.status_code == 200:
-                deleted = True
-                console.print(f"[dim]deleted {run_id} on {creds['server']}[/dim]")
-            elif resp.status_code != 404:  # 404 = never synced or already gone
-                console.print(
-                    f"[yellow]cloud delete failed: HTTP {resp.status_code}[/yellow]"
-                )
-    if not deleted:
+
+@app.command()
+def edit(
+    run_id: str,
+    name: Optional[str] = typer.Option(None, "--name", help="Rename the run."),
+    project: Optional[str] = typer.Option(
+        None, "--project", "-P", help="Move the run to another project."
+    ),
+    description: Optional[str] = typer.Option(
+        None, "--description", help="Replace the description."
+    ),
+    group: Optional[str] = typer.Option(
+        None, "--group", help="Set the group ('' clears it)."
+    ),
+    directory: Optional[Path] = DirOption,
+) -> None:
+    """Rename a run, move it to another project, or reword its description/group.
+
+    Edits local metadata only; a synced cloud copy keeps its original values."""
+    if name is None and project is None and description is None and group is None:
+        console.print(
+            "[red]nothing to change — pass --name/--project/--description/--group[/red]"
+        )
+        raise typer.Exit(2)
+    store = LocalStore(resolve_dir(directory))
+    if not store.update_run_meta(
+        run_id, name=name, project=project, description=description, group=group
+    ):
         console.print(f"[red]run {run_id} not found[/red]")
         raise typer.Exit(1)
+    run = store.get_run(run_id)
+    if run:
+        console.print(
+            f"{run['name']} [dim]({run_id})[/dim] · project {run['project']}"
+            + (f" · group {run['group']}" if run["group"] else "")
+        )
 
 
 @app.command()
@@ -481,6 +745,223 @@ def sync(
         console.print(
             f"[green]{synced}/{len(report)} runs synced[/green] -> {creds['server']}"
         )
+
+
+@app.command()
+def pull(
+    run_ids: Optional[list[str]] = typer.Argument(
+        None, help="Runs to pull (default: every cloud run missing locally)."
+    ),
+    project: Optional[str] = typer.Option(
+        None, "--project", "-P", help="Only pull runs from this project."
+    ),
+    directory: Optional[Path] = DirOption,
+) -> None:
+    """Download runs from the signed-in server (the reverse of `pandm sync`).
+
+    For analyzing on a different machine: metrics, histograms, media, config
+    and summary all land in the local store. Runs that already exist locally
+    are skipped, and pulled runs are marked synced so `pandm sync` won't push
+    them back."""
+    from pathlib import PurePosixPath
+
+    import httpx
+
+    from . import credentials
+
+    creds = credentials.load()
+    if creds is None:
+        console.print("[red]not logged in — run pandm login first[/red]")
+        raise typer.Exit(1)
+    store = LocalStore(resolve_dir(directory))
+    client = httpx.Client(
+        base_url=creds["server"],
+        headers={"x-api-key": creds["api_key"]},
+        timeout=30,
+    )
+
+    def fetch(path: str, **params) -> httpx.Response:
+        resp = client.get(path, params=params or None)
+        resp.raise_for_status()
+        return resp
+
+    try:
+        if run_ids:
+            remote_runs = []
+            for rid in run_ids:
+                resp = client.get(f"/api/runs/{rid}")
+                if resp.status_code == 404:
+                    console.print(
+                        f"[red]run {rid} not found on {creds['server']}[/red]"
+                    )
+                    raise typer.Exit(1)
+                resp.raise_for_status()
+                remote_runs.append(resp.json())
+        else:
+            remote_runs = fetch(
+                "/api/runs", **({"project": project} if project else {})
+            ).json()
+            if project:
+                remote_runs = [r for r in remote_runs if r["project"] == project]
+
+        pulled = 0
+        for run in remote_runs:
+            rid = run["id"]
+            if store.run_exists(rid):
+                console.print(f"  [dim]{rid} exists locally — skipped[/dim]")
+                continue
+            store.create_run(
+                rid,
+                run["project"],
+                run["name"],
+                run["config"],
+                created_at=run["created_at"],
+                description=run["description"],
+                tags=run["tags"],
+                group=run["group"],
+            )
+            for meta in fetch(f"/api/runs/{rid}/metrics").json():
+                key = meta["key"]
+                s = fetch(f"/api/runs/{rid}/metrics/{key}", max_points=2**31 - 1).json()
+                store.log_metrics(
+                    rid,
+                    list(
+                        zip([key] * len(s["steps"]), s["steps"], s["values"], s["ts"])
+                    ),
+                )
+            for meta in fetch(f"/api/runs/{rid}/histograms").json():
+                key = meta["key"]
+                s = fetch(
+                    f"/api/runs/{rid}/histograms/{key}", max_steps=2**31 - 1
+                ).json()
+                for step, bins, counts, ts in zip(
+                    s["steps"], s["bins"], s["counts"], s["ts"]
+                ):
+                    store.log_histogram(rid, key, step, bins, counts, ts=ts)
+            for item in fetch(f"/api/runs/{rid}/media").json():
+                data = fetch(item["url"]).content
+                store.log_media(
+                    rid,
+                    item["key"],
+                    item["step"],
+                    data,
+                    ext=PurePosixPath(item["filename"]).suffix or ".png",
+                    caption=item["caption"],
+                    ts=item["ts"],
+                )
+            store.set_summary(rid, run["summary"])
+            store.set_metric_meta(rid, run["metric_meta"])
+            if run["status"] == "running" and run["progress"] is not None:
+                store.update_progress(
+                    rid, run["progress"], run["progress_total"], ts=run["progress_ts"]
+                )
+            if run["status"] != "running":
+                store.finish_run(
+                    rid, run["status"], run["finished_at"] or run["updated_at"]
+                )
+            store.mark_fully_synced(rid)  # the server already has all of this
+            pulled += 1
+            console.print(f"  [dim]{rid}[/dim] pulled ({run['name']})")
+        console.print(
+            f"[green]{pulled}/{len(remote_runs)} runs pulled[/green] <- {creds['server']}"
+        )
+    except httpx.HTTPError as exc:
+        console.print(f"[red]pull failed: {exc}[/red]")
+        raise typer.Exit(1)
+    finally:
+        client.close()
+
+
+@app.command()
+def whoami(
+    as_json: bool = JsonOption,
+    directory: Optional[Path] = DirOption,
+) -> None:
+    """Show the signed-in server/account and how many runs still have data to push."""
+    from . import credentials
+
+    creds = credentials.load()
+    if creds is None:
+        if as_json:
+            _emit_json({"logged_in": False})
+        else:
+            console.print(
+                "[dim]not logged in — runs stay local; pandm login to sync[/dim]"
+            )
+        raise typer.Exit(1)
+    pending = LocalStore(resolve_dir(directory)).runs_needing_sync()
+    if as_json:
+        _emit_json(
+            {
+                "logged_in": True,
+                "server": creds["server"],
+                "login": creds.get("login"),
+                "pending_runs": pending,
+            }
+        )
+        return
+    console.print(
+        f"[green]{creds.get('login') or '(api key)'}[/green] @ {creds['server']}"
+        f" [dim]({credentials.cred_path()})[/dim]"
+    )
+    if pending:
+        console.print(
+            f"[yellow]{len(pending)} runs with unpushed data[/yellow] — pandm sync"
+        )
+    else:
+        console.print("[dim]everything synced[/dim]")
+
+
+@app.command()
+def finish(
+    run_ids: Optional[list[str]] = typer.Argument(
+        None, help="Runs to finalize (or use --stale)."
+    ),
+    status: str = typer.Option(
+        "finished", "--status", "-s", help="Final status: finished or crashed."
+    ),
+    stale: bool = typer.Option(
+        False,
+        "--stale",
+        help="Persist 'crashed' for every run whose process died without finish().",
+    ),
+    directory: Optional[Path] = DirOption,
+) -> None:
+    """Persist a final status for runs that never called finish().
+
+    A killed training process leaves its run 'running' in the database; the
+    dashboard and ls already display it as crashed once the heartbeat expires,
+    but --stale (or an explicit run id) writes that verdict down for good."""
+    if status not in ("finished", "crashed"):
+        console.print(f"[red]bad --status {status!r} — use finished or crashed[/red]")
+        raise typer.Exit(2)
+    store = LocalStore(resolve_dir(directory))
+    if stale:
+        # displayed-crashed without a finished_at == heartbeat expired, never finalized
+        targets = [
+            r
+            for r in store.list_runs()
+            if r["status"] == "crashed" and r["finished_at"] is None
+        ]
+        for r in targets:
+            store.finish_run(r["id"], "crashed", finished_at=r["updated_at"])
+            console.print(f"  [dim]{r['id']}[/dim] marked crashed ({r['name']})")
+        console.print(
+            f"[green]{len(targets)} stale runs finalized[/green]"
+            if targets
+            else "[dim]no stale runs[/dim]"
+        )
+        return
+    if not run_ids:
+        console.print("[red]give run ids or --stale[/red]")
+        raise typer.Exit(2)
+    for rid in run_ids:
+        run = store.get_run(rid)
+        if run is None:
+            console.print(f"[red]run {rid} not found[/red]")
+            raise typer.Exit(1)
+        store.finish_run(rid, status)
+        console.print(f"  [dim]{rid}[/dim] -> {status}")
 
 
 @app.command()

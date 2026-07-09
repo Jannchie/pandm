@@ -916,3 +916,103 @@ def test_dual_resume_flips_local_and_remote(local_dir, server):
     assert (
         client.get(f"/api/runs/{run.id}").json()["status"] == "running"
     )  # remote flipped too
+
+
+# ------------------------------------------------------------------ cli pull
+
+
+def _pull_client_factory(tmp_path, monkeypatch):
+    """Route the httpx.Client that `pandm pull` builds at the in-process server
+    (a fresh TestClient per call — pull closes its client when done)."""
+
+    def fake_client(**kw):
+        client = TestClient(create_app(tmp_path / "server", api_key="sekrit"))
+        client.headers.update(kw.get("headers") or {})
+        return client
+
+    monkeypatch.setattr("httpx.Client", fake_client)
+
+
+def test_cli_pull_downloads_everything(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from pandm.cli import app as cli_app
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    credentials.save(SERVER_URL, "sekrit")
+
+    server_store = LocalStore(tmp_path / "server")
+    server_store.create_run(
+        "cloud0000001", "p", "n", {"lr": 1}, description="d", tags=["t1"], group="g"
+    )
+    server_store.log_metrics(
+        "cloud0000001", [("loss", 0, 1.0, 1.0), ("loss", 1, 0.5, 2.0)]
+    )
+    server_store.log_histogram("cloud0000001", "w", 0, [0.0, 1.0], [4], ts=1.0)
+    server_store.log_media(
+        "cloud0000001", "img", 0, b"pngbytes", ext=".png", caption="c", ts=1.0
+    )
+    server_store.set_summary("cloud0000001", {"best": 0.5})
+    server_store.finish_run("cloud0000001", "finished", 3.0)
+    _pull_client_factory(tmp_path, monkeypatch)
+
+    local_dir = tmp_path / "local"
+    result = CliRunner().invoke(cli_app, ["pull", "--dir", str(local_dir)])
+    assert result.exit_code == 0, result.stdout
+
+    local = LocalStore(local_dir)
+    run = local.get_run("cloud0000001")
+    assert run is not None
+    assert run["status"] == "finished" and run["config"] == {"lr": 1}
+    assert run["tags"] == ["t1"] and run["group"] == "g"
+    assert run["summary"] == {"best": 0.5}
+    assert local.metric_series("cloud0000001", "loss")["values"] == [1.0, 0.5]
+    assert local.histogram_series("cloud0000001", "w")["counts"] == [[4]]
+    media = local.list_media("cloud0000001")
+    assert len(media) == 1 and media[0]["caption"] == "c"
+    media_file = local.media_path("cloud0000001", media[0]["filename"])
+    assert media_file is not None and media_file.read_bytes() == b"pngbytes"
+    assert local.runs_needing_sync() == []  # marked synced — sync won't push it back
+
+    # a second pull skips the run instead of duplicating it
+    result = CliRunner().invoke(cli_app, ["pull", "--dir", str(local_dir)])
+    assert result.exit_code == 0 and "skipped" in result.stdout
+
+
+def test_cli_pull_missing_run_exits_1(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from pandm.cli import app as cli_app
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    credentials.save(SERVER_URL, "sekrit")
+    LocalStore(tmp_path / "server")  # empty server store
+    _pull_client_factory(tmp_path, monkeypatch)
+
+    result = CliRunner().invoke(
+        cli_app, ["pull", "nope", "--dir", str(tmp_path / "local")]
+    )
+    assert result.exit_code == 1
+
+
+def test_cli_whoami_logged_in(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from pandm.cli import app as cli_app
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    credentials.save(SERVER_URL, "sekrit", login="alice")
+
+    result = CliRunner().invoke(
+        cli_app, ["whoami", "--json", "--dir", str(tmp_path / ".pandm")]
+    )
+    assert result.exit_code == 0, result.stdout
+    import json as _json
+
+    data = _json.loads(result.stdout)
+    assert data == {
+        "logged_in": True,
+        "server": SERVER_URL,
+        "login": "alice",
+        "pending_runs": [],
+    }
