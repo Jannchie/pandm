@@ -8,6 +8,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # oldest supported and current — catches syntax/stdlib drift at both ends
+        python-version: ['3.10', '3.13']
     steps:
       - uses: actions/checkout@v5
 
@@ -24,11 +28,20 @@ jobs:
         working-directory: web
 
       - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
       - run: uv sync
+      - name: Lint
+        run: uv run ruff check src tests examples
       - name: Tests
         run: uv run pytest tests -q
       - name: Typecheck
         run: uvx pyright
+
+      - name: Lint dashboard
+        run: pnpm lint
+        working-directory: web
+        if: matrix.python-version == '3.13' # once is enough
 
   workers:
     runs-on: ubuntu-latest
