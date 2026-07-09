@@ -754,9 +754,10 @@ class LocalStore:
         return [dict(r) for r in rows]
 
     def media_path(self, run_id: str, filename: str) -> Path | None:
-        path = (self.media_root / run_id / filename).resolve()
-        if not path.is_relative_to(self.media_root.resolve()):
-            return None  # path traversal guard
+        run_root = (self.media_root / run_id).resolve()
+        path = (run_root / filename).resolve()
+        if not path.is_relative_to(run_root):
+            return None  # path traversal guard — must stay inside this run's dir
         return path if path.is_file() else None
 
     # -------------------------------------------------------------- users

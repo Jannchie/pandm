@@ -582,7 +582,18 @@ def test_finish_ingests_metric_meta(data_dir):
         client.post("/api/runs/m1/finish", json=body, headers=headers).status_code
         == 200
     )
-    assert client.get("/api/runs/m1").json()["metric_meta"] == spec
+    assert client.get("/api/runs/m1", headers=headers).json()["metric_meta"] == spec
+
+
+def test_media_path_stays_inside_run_dir(data_dir):
+    store = LocalStore(data_dir)
+    store.create_run("r1", "p", "one", {})
+    store.create_run("r2", "p", "two", {})
+    store.log_media("r1", "samples", 0, _png_bytes(), "png", None)
+    fname = store.list_media("r1")[0]["filename"]
+    assert store.media_path("r1", fname) is not None
+    # a filename escaping into a sibling run's directory must be rejected
+    assert store.media_path("r2", f"../r1/{fname}") is None
 
 
 def test_log_histogram_local(data_dir):
