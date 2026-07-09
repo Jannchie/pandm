@@ -395,10 +395,14 @@ export class RunStore extends DurableObject<Env> {
     return { steps: idx.map((i) => steps[i]), bins: idx.map((i) => bins[i]), counts: idx.map((i) => counts[i]), ts: idx.map((i) => ts[i]) }
   }
 
-  /** Drop the run's whole time series (called from DELETE handlers). */
+  /** Drop the run's whole time series (called from DELETE handlers).
+   * storage.deleteAll() (not row DELETEs) actually releases the DO's SQLite
+   * file — otherwise a deleted run's object keeps its storage billed forever.
+   * The schema is recreated in case this live instance is reused (a run
+   * re-created under the same id before the object is evicted). */
   async deleteAll(): Promise<void> {
-    this.sql.exec('DELETE FROM segments')
-    this.sql.exec('DELETE FROM kv')
+    await this.ctx.storage.deleteAll()
+    this.initSchema()
     this.state = blankState()
   }
 }
