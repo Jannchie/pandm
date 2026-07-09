@@ -99,7 +99,7 @@ def server(
         None,
         "--api-key",
         envvar="PANDM_API_KEY",
-        help="Require x-api-key on write endpoints.",
+        help="Require x-api-key on every endpoint (the dashboard prompts for it).",
     ),
 ) -> None:
     """Start a pandm server for cloud deployment (SDKs report via `pandm login` or PANDM_REMOTE)."""

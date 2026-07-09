@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import CliApprove from './components/CliApprove.vue'
+import KeyGate from './components/KeyGate.vue'
 import Lightbox from './components/Lightbox.vue'
 import LoginGate from './components/LoginGate.vue'
 import MediaPanel from './components/MediaPanel.vue'
@@ -18,11 +19,22 @@ const TABS = [
 ] as const
 
 onMounted(() => bootstrap())
+
+// the slider fires per 0.01 step while dragging; each write to state.smoothing
+// recomputes EMA + redraws every chart, so debounce the global write and keep
+// only the label instant
+const smoothing = ref(state.smoothing)
+let smoothTimer = 0
+watch(smoothing, (v) => {
+  clearTimeout(smoothTimer)
+  smoothTimer = window.setTimeout(() => (state.smoothing = v), 120)
+})
 </script>
 
 <template>
   <div v-if="state.auth.mode === 'loading'" class="h-full bg-bg" />
   <LoginGate v-else-if="state.auth.mode === 'anon'" />
+  <KeyGate v-else-if="state.auth.mode === 'key'" />
   <div v-else class="h-full flex flex-col bg-bg">
     <TopBar />
     <div class="flex flex-1 min-h-0">

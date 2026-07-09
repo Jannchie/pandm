@@ -81,6 +81,7 @@ export interface MediaItem {
 
 export interface Me {
   mode: 'local' | 'user'
+  protected?: boolean // single-key server: reads need the key (cookie or header)
   login?: string
   name?: string | null
   avatar_url?: string | null

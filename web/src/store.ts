@@ -4,7 +4,7 @@ import { clearEta } from './eta'
 
 export const state = reactive({
   auth: {
-    mode: 'loading' as 'loading' | 'local' | 'anon' | 'user',
+    mode: 'loading' as 'loading' | 'local' | 'anon' | 'key' | 'user',
     user: null as null | {
       login: string
       name: string | null
@@ -267,6 +267,17 @@ export async function bootstrap() {
         api_key: me.api_key!,
       }
     } else {
+      if (me.protected) {
+        // single-key server: probe a read — the stored cookie may already unlock it
+        try {
+          await api.fetchProjects()
+        } catch (err) {
+          if (err instanceof api.HttpError && err.status === 401) {
+            state.auth.mode = 'key'
+            return // key gate shows; submitKey() re-enters bootstrap
+          }
+        }
+      }
       state.auth.mode = 'local'
       state.cliCode = null // device flow is meaningless without accounts
     }
@@ -278,6 +289,19 @@ export async function bootstrap() {
     state.auth.mode = 'local' // server unreachable: fall through, refresh() will mark offline
   }
   startPolling()
+}
+
+export async function submitKey(key: string): Promise<boolean> {
+  // cookie (not header) so <img> media requests authenticate too
+  document.cookie = `pandm_key=${encodeURIComponent(key)}; path=/; max-age=31536000; SameSite=Lax`
+  try {
+    await api.fetchProjects()
+  } catch {
+    return false // wrong key: stay on the gate
+  }
+  state.auth.mode = 'loading'
+  await bootstrap()
+  return true
 }
 
 export async function signOut() {

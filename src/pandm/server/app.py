@@ -114,15 +114,12 @@ def create_app(
         )
 
         @app.get("/api/me")
-        def me_local() -> dict[str, str]:
-            return {"mode": "local"}
+        def me_local() -> dict[str, Any]:
+            # `protected` tells the dashboard to gate on a key before reading
+            return {"mode": "local", "protected": bool(api_key)}
 
     else:
         register_auth_routes(app, ctx)
-
-    def current_user(request: Request) -> dict[str, Any] | None:
-        """Resolved identity in multi-user mode; None in local / single-key mode."""
-        return ctx.require_user(request) if ctx else None
 
     def require_key(
         request: Request, x_api_key: str | None = Header(default=None)
@@ -132,6 +129,22 @@ def create_app(
             return ctx.require_user(request)
         if api_key and x_api_key != api_key:
             raise HTTPException(status_code=401, detail="invalid or missing x-api-key")
+        return None
+
+    def current_user(
+        request: Request, x_api_key: str | None = Header(default=None)
+    ) -> dict[str, Any] | None:
+        """Read guard: per-user identity in multi-user mode. In single-key mode the
+        key is required too — an exposed server must not serve data anonymously; a
+        cookie is accepted alongside the header so the browser dashboard (and its
+        <img> media loads) can authenticate."""
+        if ctx:
+            return ctx.require_user(request)
+        if api_key and x_api_key != api_key:
+            if request.cookies.get("pandm_key") != api_key:
+                raise HTTPException(
+                    status_code=401, detail="invalid or missing x-api-key"
+                )
         return None
 
     def check_owner(run_id: str, user: dict[str, Any] | None) -> None:

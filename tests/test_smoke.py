@@ -206,15 +206,21 @@ def test_ingest_api_with_key(data_dir):
         == 200
     )
 
-    # reads stay open without a key
-    run = client.get(f"/api/runs/{run_id}").json()
+    # reads require the key too — an exposed server must not serve data anonymously
+    assert client.get(f"/api/runs/{run_id}").status_code == 401
+    assert client.get("/api/runs").status_code == 401
+    run = client.get(f"/api/runs/{run_id}", headers=headers).json()
     assert run["status"] == "finished"
     assert run["stats"]["loss"]["last"] == 4.0
+    # the dashboard authenticates via cookie (media <img> tags can't set headers)
+    client.cookies.set("pandm_key", "sekrit")
+    assert client.get(f"/api/runs/{run_id}").status_code == 200
+    client.cookies.clear()
 
     assert (
         client.delete(f"/api/runs/{run_id}", headers=headers).json()["deleted"] is True
     )
-    assert client.get(f"/api/runs/{run_id}").status_code == 404
+    assert client.get(f"/api/runs/{run_id}", headers=headers).status_code == 404
 
 
 def test_delete_project_removes_all_runs(data_dir):
@@ -238,10 +244,12 @@ def test_delete_project_removes_all_runs(data_dir):
         client.delete("/api/projects/doomed", headers=headers).json()["deleted"] is True
     )
 
-    projects = {p["project"] for p in client.get("/api/projects").json()}
+    projects = {
+        p["project"] for p in client.get("/api/projects", headers=headers).json()
+    }
     assert projects == {"other"}
-    assert client.get("/api/runs/r0").status_code == 404
-    assert client.get("/api/runs/keep").status_code == 200
+    assert client.get("/api/runs/r0", headers=headers).status_code == 404
+    assert client.get("/api/runs/keep", headers=headers).status_code == 200
 
 
 def test_uncaught_exception_marks_crashed(data_dir, tmp_path):
@@ -368,12 +376,12 @@ def test_progress_ingest_api(data_dir):
     assert client.post(
         "/api/runs/p1/progress", json={"current": 30, "total": 100}, headers=headers
     ).json()["ok"]
-    run = client.get("/api/runs/p1").json()
+    run = client.get("/api/runs/p1", headers=headers).json()
     assert run["progress"] == 30 and run["progress_total"] == 100
 
     # total omitted -> keeps the previously set total
     client.post("/api/runs/p1/progress", json={"current": 60}, headers=headers)
-    run = client.get("/api/runs/p1").json()
+    run = client.get("/api/runs/p1", headers=headers).json()
     assert run["progress"] == 60 and run["progress_total"] == 100
 
     # writes still need the key
@@ -471,7 +479,7 @@ def test_finish_ingests_summary(data_dir):
         client.post("/api/runs/s1/finish", json=body, headers=headers).status_code
         == 200
     )
-    run = client.get("/api/runs/s1").json()
+    run = client.get("/api/runs/s1", headers=headers).json()
     assert run["summary"] == {"best/spearman": 0.773, "best/epoch": 7}
 
 
@@ -666,9 +674,9 @@ def test_histogram_ingest_and_read_api(data_dir):
         == 2
     )
 
-    keys = client.get("/api/runs/h1/histograms").json()
+    keys = client.get("/api/runs/h1/histograms", headers=headers).json()
     assert keys[0]["key"] == "dist" and keys[0]["points"] == 2
-    series = client.get("/api/runs/h1/histograms/dist").json()
+    series = client.get("/api/runs/h1/histograms/dist", headers=headers).json()
     assert series["steps"] == [0, 1] and series["counts"] == [[3, 5], [4, 4]]
 
     # writes still need the key
@@ -768,7 +776,7 @@ def test_meta_endpoint_merges_live(data_dir):
         headers=headers,
     )
     assert r.status_code == 200
-    run = client.get("/api/runs/mt1").json()
+    run = client.get("/api/runs/mt1", headers=headers).json()
     assert run["status"] == "running"  # not finished
     assert run["metric_meta"]["win_rate"] == {"min": 0, "max": 1, "unit": "percent"}
 
@@ -778,7 +786,7 @@ def test_meta_endpoint_merges_live(data_dir):
         json={"metric_meta": {"loss": {"goal": "min"}}},
         headers=headers,
     )
-    assert set(client.get("/api/runs/mt1").json()["metric_meta"]) == {
+    assert set(client.get("/api/runs/mt1", headers=headers).json()["metric_meta"]) == {
         "win_rate",
         "loss",
     }
