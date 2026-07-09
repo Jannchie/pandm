@@ -187,6 +187,9 @@ class LocalStore:
         self._db.row_factory = sqlite3.Row
         with self._lock:
             self._db.execute("PRAGMA journal_mode=WAL")
+            # WAL keeps commits consistent after a crash even without a full fsync
+            # per commit; NORMAL cuts the fsync cost an order of magnitude
+            self._db.execute("PRAGMA synchronous=NORMAL")
             self._db.execute("PRAGMA busy_timeout=5000")
             self._db.executescript(_SCHEMA)
             self._migrate()
