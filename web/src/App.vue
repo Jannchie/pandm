@@ -166,7 +166,7 @@ watch(smoothing, (v) => {
                   />
                 </svg>
                 <input
-                  v-model.number="state.smoothing"
+                  v-model.number="smoothing"
                   type="range"
                   min="0"
                   max="0.99"
@@ -174,7 +174,7 @@ watch(smoothing, (v) => {
                   class="w-24"
                 />
                 <span class="text-[12.5px] text-fg-dim w-7 tabular-nums">{{
-                  state.smoothing.toFixed(2)
+                  smoothing.toFixed(2)
                 }}</span>
               </div>
               <div
