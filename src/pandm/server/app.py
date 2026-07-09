@@ -25,6 +25,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -100,6 +101,8 @@ def create_app(
     root = resolve_dir(data_dir)
     store = LocalStore(root)
     app = FastAPI(title="pandm", docs_url="/api/docs", openapi_url="/api/openapi.json")
+    # the dashboard bundle and large metric-series JSON both compress ~4x
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
 
     oauth = github_oauth_config()
     ctx = AuthContext(store, load_secret(root), *oauth) if oauth else None
