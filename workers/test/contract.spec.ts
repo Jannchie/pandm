@@ -381,6 +381,29 @@ describe('run lifecycle', () => {
   })
 })
 
+describe('edge-cache key (data_rev)', () => {
+  it('moves on ingest but not on heartbeat/progress', async () => {
+    await post('/api/runs', { id: 'rev00001', project: 'p', name: 'rev' }, keyOf(alice))
+    const rev = async () =>
+      (await env.DB.prepare("SELECT data_rev FROM runs WHERE id = 'rev00001'").first<{ data_rev: number }>())!.data_rev
+
+    expect(await rev()).toBe(0) // fresh run: no data yet
+
+    await post('/api/runs/rev00001/metrics', { rows: [{ key: 'loss', step: 0, value: 1, ts: 5 }] }, keyOf(alice))
+    const afterIngest = await rev()
+    expect(afterIngest).toBeGreaterThan(0) // ingest bumps the cache key
+
+    // liveness must NOT invalidate cached chart reads — no new data arrived
+    await api('/api/runs/rev00001/heartbeat', { method: 'POST', headers: keyOf(alice) })
+    await post('/api/runs/rev00001/progress', { current: 10, total: 100 }, keyOf(alice))
+    expect(await rev()).toBe(afterIngest)
+
+    // while liveness itself did land
+    const run = (await (await api('/api/runs/rev00001', { headers: keyOf(alice) })).json()) as any
+    expect(run.progress).toBe(10)
+  })
+})
+
 describe('legacy fallback (pre-DO runs)', () => {
   it('serves a run whose series live in the D1 metrics table, backfilling summary on read', async () => {
     // A pre-DO run: stats IS NULL (never seen by a RunStore), summary NULL, and its

@@ -88,20 +88,24 @@ export class RunStore extends DurableObject<Env> {
     this.sql = ctx.storage.sql
     this.state = blankState()
     ctx.blockConcurrencyWhile(async () => {
-      this.sql.exec(`CREATE TABLE IF NOT EXISTS segments (
-        id    INTEGER PRIMARY KEY AUTOINCREMENT,
-        kind  TEXT NOT NULL,        -- 'm' metric | 'h' histogram
-        key   TEXT NOT NULL,
-        start_step INTEGER NOT NULL,
-        end_step   INTEGER NOT NULL,
-        count INTEGER NOT NULL,
-        blob  TEXT NOT NULL         -- columnar JSON: {steps,values,ts} or {steps,bins,counts,ts}
-      )`)
-      this.sql.exec('CREATE INDEX IF NOT EXISTS idx_segments ON segments (kind, key, end_step)')
-      this.sql.exec('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)')
+      this.initSchema()
       const row = this.sql.exec<{ v: string }>("SELECT v FROM kv WHERE k = 'state'").toArray()[0]
       if (row) this.state = { ...blankState(), ...JSON.parse(row.v) }
     })
+  }
+
+  private initSchema() {
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS segments (
+      id    INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind  TEXT NOT NULL,        -- 'm' metric | 'h' histogram
+      key   TEXT NOT NULL,
+      start_step INTEGER NOT NULL,
+      end_step   INTEGER NOT NULL,
+      count INTEGER NOT NULL,
+      blob  TEXT NOT NULL         -- columnar JSON: {steps,values,ts} or {steps,bins,counts,ts}
+    )`)
+    this.sql.exec('CREATE INDEX IF NOT EXISTS idx_segments ON segments (kind, key, end_step)')
+    this.sql.exec('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)')
   }
 
   private persistState() {
@@ -109,10 +113,12 @@ export class RunStore extends DurableObject<Env> {
   }
 
   /** Roll the run's freshness/summary/stats into its D1 catalog row. One row write
-   * per ingest batch — the same place the old server wrote `touchRun`. */
+   * per ingest batch — the same place the old server wrote `touchRun`. Bumps
+   * data_rev (the edge-cache key): new data invalidates cached reads, while the
+   * liveness-only writes below leave it alone. */
   private async syncRun() {
     await this.env.DB.prepare(
-      `UPDATE runs SET updated_at = ?1, progress = ?2, progress_total = ?3, progress_ts = ?4,
+      `UPDATE runs SET updated_at = ?1, data_rev = ?1, progress = ?2, progress_total = ?3, progress_ts = ?4,
                        summary = ?5, stats = ?6 WHERE id = ?7`,
     )
       .bind(
@@ -281,7 +287,7 @@ export class RunStore extends DurableObject<Env> {
     const sm = hasData ? JSON.stringify(this.state.summary) : null
     const st = hasData ? JSON.stringify(this.statsForRun()) : null
     await this.env.DB.prepare(
-      `UPDATE runs SET status = ?1, finished_at = ?2, updated_at = ?3,
+      `UPDATE runs SET status = ?1, finished_at = ?2, updated_at = ?3, data_rev = ?3,
          metric_meta = COALESCE(?4, metric_meta),
          summary = COALESCE(?5, summary),
          stats = COALESCE(?6, stats)

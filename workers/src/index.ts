@@ -70,13 +70,14 @@ async function ownerGuard(c: any, runId: string): Promise<Response | null> {
   return null
 }
 
-/** Serve a run-scoped GET from the edge cache, keyed by the run's updated_at —
- * a finished run never changes, so its repeat reads cost zero D1 rows. The
+/** Serve a run-scoped GET from the edge cache, keyed by the run's data_rev —
+ * it moves only when new data lands (not on heartbeat/progress), so a finished
+ * run and an active-but-idle run both serve repeat reads for zero D1 rows. The
  * external response carries no max-age (its URL is unversioned); only the
  * internal versioned copy is long-lived. */
 async function cachedJson(c: any, compute: () => Promise<unknown>): Promise<Response> {
   const meta: db.RunMeta = c.get('runMeta')
-  const key = new Request(`https://pandm.cache/v1?u=${meta.updated_at}&q=${encodeURIComponent(c.req.url)}`)
+  const key = new Request(`https://pandm.cache/v1?u=${meta.data_rev}&q=${encodeURIComponent(c.req.url)}`)
   const hit = await caches.default.match(key)
   if (hit) return new Response(hit.body, { headers: { 'Content-Type': 'application/json' } })
   const data = await compute()

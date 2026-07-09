@@ -162,15 +162,17 @@ export async function createRun(
 
 export interface RunMeta {
   user_id: number
-  updated_at: number
+  data_rev: number // bumped only when series/media data changes — the cache key.
+  // Heartbeat/progress deliberately do NOT touch it, so an active run that logs
+  // nothing new keeps serving its charts from the edge cache.
   legacy: number // 1 = pre-DO run (series in D1); 0 = DO-served. Routes reads.
 }
 
-/** Owner + freshness + engine in one row read — the cache key for run-scoped
- * responses and the legacy/DO routing flag. */
+/** Owner + data freshness + engine in one row read — the cache key for
+ * run-scoped responses and the legacy/DO routing flag. */
 export const runMeta = async (db: D1Database, runId: string): Promise<RunMeta | null> =>
   db
-    .prepare('SELECT user_id, updated_at, (stats IS NULL) AS legacy FROM runs WHERE id = ?1')
+    .prepare('SELECT user_id, data_rev, (stats IS NULL) AS legacy FROM runs WHERE id = ?1')
     .bind(runId)
     .first<RunMeta>()
 
