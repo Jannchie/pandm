@@ -99,6 +99,8 @@ title and subtitle come first.
 | `run.log_image(key, image, step=None, caption=None)` | Log one image. `step` defaults to the latest metric step. |
 | `run.log_histogram(key, samples, *, step=None, bins=30, description=None)` | Log a distribution snapshot — drawn over time as a density heatmap. Needs numpy. See *Shaping how a metric renders*. |
 | `run.set_progress(current, total=None)` | Report progress in a custom unit (epochs, samples) for the ETA. |
+| `run.ingest_csv(path, *, step_column=None, include=None, exclude=None, prefix="")` | Import metric rows from a CSV a closed-source trainer writes; incremental (row-count cursor). Returns rows ingested. See *Trainers you can't inject a logger into*. |
+| `run.watch_csv(path, *, interval=5.0, step_column=None, include=None, exclude=None, prefix="")` | Tail that CSV from a background thread until the run finishes; returns a `stop()`. Same filtering args as `ingest_csv`. |
 | `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None, description=None, panel=None, series=None, band=None, kind="line", x_label=None, y_label=None, x_ticks=None, y_ticks=None)` | Declare how the dashboard renders a metric. See *Shaping how a metric renders*. |
 | `run.finish(status="finished")` | End the run. Also runs automatically at process exit. |
 | `run.delete()` | Delete this run + its media, locally and (in cloud mode) on the server. |
@@ -255,6 +257,51 @@ accelerator.log({"loss": 0.42}, step=10)            # -> run.log
 accelerator.end_training()                          # -> run.finish
 # images: accelerator.get_tracker("pandm", unwrap=True).log_image("samples", img, step=step)
 ```
+
+## PyTorch Lightning
+
+`PandmLogger` is a Lightning `Logger`; it takes the same arguments as `pandm.init`.
+Whatever your `LightningModule` passes to `self.log(...)` pandm follows.
+
+```python
+from pandm.integrations.lightning import PandmLogger
+
+logger = PandmLogger(project="mnist", name="baseline", config={"lr": 1e-3})
+trainer = Trainer(logger=logger)
+trainer.fit(model)                                  # self.log("train/loss", loss) -> run.log
+# images / histograms / summary: reach the underlying run via logger.experiment
+logger.experiment.log_image("samples", img, step=step)
+```
+
+The run is created lazily on the first `log_hyperparams`/`log_metrics`, so
+`save_hyperparameters()` folds into the run config. Lightning ships as two
+mutually incompatible packages (`pytorch_lightning` vs `lightning.pytorch`);
+`PandmLogger` subclasses whichever is importable. If **both** are installed, set
+`PANDM_LIGHTNING_BACKEND=pytorch_lightning` (or `=lightning`) before import to
+match the `Trainer` you use.
+
+## Trainers you can't inject a logger into — follow their CSV
+
+Closed-source trainers (rfdetr, YOLO, detectron2) build their own logger list and
+won't accept an injected one, but they dump a per-epoch `metrics.csv`. Point pandm
+at that file instead of fighting for a logger seat — each new numeric row becomes a
+`log()` call.
+
+```python
+run = pandm.init(project="det", name="rfdetr-baseline",
+                 description="RF-DETR 默认超参基线，跟踪 mAP 曲线")
+run.watch_csv("output/metrics.csv", step_column="epoch")   # live: tails in the background
+rfdetr_model.train(...)                                     # writes metrics.csv as it goes
+run.finish()                                               # stops the watcher, drains the tail
+```
+
+- Ingestion is **incremental** (row-count cursor), safe to call repeatedly — assumes
+  existing rows are immutable and the file only grows at the bottom (true for per-epoch logs).
+- `step_column=` names the step column (`"epoch"`, `"step"`); omit it to use the auto counter.
+- `include=` / `exclude=` filter source columns; `prefix=` namespaces the keys (`prefix="val/"`).
+- One-shot instead of live: `run.ingest_csv("output/metrics.csv", step_column="epoch")`.
+- CSV columns still need titling — once the keys land, declare them with `define_metric`
+  (`unit="percent"` for mAP-style ratios, `panel=` to group, a `description=`). See *Title everything*.
 
 ## Verify it landed
 
