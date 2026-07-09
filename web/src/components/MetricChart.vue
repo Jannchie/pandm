@@ -226,6 +226,18 @@ async function update() {
   const runs = selectedRuns.value
   const desc = props.desc
   if (desc.kind === 'bar') {
+    // bars draw from stats.last/summary (no fetch), but still deserve the same
+    // bail-out: a poll that brought no new values must not replay the bar animation
+    const renderKey = JSON.stringify(
+      runs.map((r) => [
+        r.id,
+        desc.series.map(
+          (s) => r.stats?.[s.key]?.last ?? r.summary?.[s.key] ?? null,
+        ),
+      ]),
+    )
+    if (renderKey === lastRenderKey) return
+    lastRenderKey = renderKey
     renderBar()
     return
   }
