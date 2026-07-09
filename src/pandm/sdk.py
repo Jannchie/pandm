@@ -364,6 +364,7 @@ class Run:
         self._progress_current: float | None = None
         self._progress_total: float | None = float(total_steps) if total_steps else None
         self._progress_dirty = False
+        self._warned_non_numeric = False  # one warning per run, then drop silently
         # ingest_csv cursors (rows already consumed, keyed by resolved path) and the
         # background watch_csv tailers, so finish()/delete() can drain and stop them.
         self._csv_cursors: dict[str, int] = {}
@@ -410,12 +411,25 @@ class Run:
             step = self._step
         step = int(step)
         self._step = max(self._step, step + 1)
-        # non-finite values (NaN/Inf) are dropped — they would poison JSON responses
-        rows = [
-            (str(k), step, fv, ts)
-            for k, v in metrics.items()
-            if math.isfinite(fv := float(v))
-        ]
+        # non-numeric values (strings, None) and non-finite floats (NaN/Inf) are
+        # dropped rather than raised — a stray value must never kill training
+        rows = []
+        dropped = []
+        for k, v in metrics.items():
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                dropped.append(str(k))
+                continue
+            if math.isfinite(fv):
+                rows.append((str(k), step, fv, ts))
+        if dropped and not self._warned_non_numeric:
+            self._warned_non_numeric = True
+            print(
+                f"pandm: dropped non-numeric value(s) for {', '.join(dropped)} "
+                "(only scalars are logged; further drops are silent)",
+                file=sys.stderr,
+            )
         with self._buf_lock:
             self._buffer.extend(rows)
             if (
@@ -652,7 +666,10 @@ class Run:
         ingested = 0
         for row in new_rows:
             step: int | None = None
-            if step_column is not None and (raw := row.get(step_column)) not in (None, ""):
+            if step_column is not None and (raw := row.get(step_column)) not in (
+                None,
+                "",
+            ):
                 try:
                     step = int(float(raw))
                 except (TypeError, ValueError):
@@ -709,7 +726,9 @@ class Run:
                 except Exception:  # noqa: BLE001 — a watcher must never kill training
                     pass
 
-        thread = threading.Thread(target=_loop, daemon=True, name=f"pandm-csv-{self.id}")
+        thread = threading.Thread(
+            target=_loop, daemon=True, name=f"pandm-csv-{self.id}"
+        )
         entry = {"stop": stop, "thread": thread, "path": path, "kwargs": kwargs}
         self._watchers.append(entry)
         thread.start()

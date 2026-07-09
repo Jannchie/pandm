@@ -65,6 +65,32 @@ def test_sdk_local_roundtrip(data_dir):
     assert store.media_path(run.id, media[0]["filename"]) is not None
 
 
+def test_log_tolerates_non_numeric_values(data_dir, capsys):
+    run = pandm.init(project="proj", name="messy", directory=data_dir)
+    run.log({"loss": 0.5, "note": "warmup", "empty": None, "bad": float("nan")}, step=0)
+    run.log({"loss": "0.25"}, step=1)  # numeric strings still coerce
+    run.finish()
+
+    store = LocalStore(data_dir)
+    keys = {k["key"] for k in store.metric_keys(run.id)}
+    assert keys == {"loss"}
+    series = store.metric_series(run.id, "loss")
+    assert series["values"] == [pytest.approx(0.5), pytest.approx(0.25)]
+    assert "non-numeric" in capsys.readouterr().err
+
+
+def test_module_level_set_progress(data_dir):
+    assert "set_progress" in pandm.__all__
+    run = pandm.init(project="proj", name="prog", directory=data_dir)
+    pandm.set_progress(5, 10)
+    pandm.finish()
+
+    store = LocalStore(data_dir)
+    got = _get_run(store, run.id)
+    assert got["progress"] == pytest.approx(5.0)
+    assert got["progress_total"] == pytest.approx(10.0)
+
+
 def test_sdk_tags_and_group_roundtrip(data_dir):
     run = pandm.init(
         project="proj",

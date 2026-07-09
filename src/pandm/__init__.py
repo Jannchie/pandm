@@ -10,6 +10,7 @@ from .sdk import (
     log,
     log_histogram,
     log_image,
+    set_progress,
     summary,
 )
 
@@ -24,6 +25,7 @@ __all__ = [
     "log",
     "log_image",
     "log_histogram",
+    "set_progress",
     "summary",
     "define_metric",
     "finish",
