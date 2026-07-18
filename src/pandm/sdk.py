@@ -848,7 +848,14 @@ def _histogram(samples: Any, bins: int) -> tuple[list[float], list[int]]:
     arr = arr[np.isfinite(arr)]
     if arr.size == 0:
         return [], []
-    counts, edges = np.histogram(arr, bins=bins)
+    lo, hi = float(arr.min()), float(arr.max())
+    # Discrete integer samples (e.g. action ids, ranks): uniform binning over the
+    # range would put bin centres at unattainable fractional values, so align one
+    # bin per integer instead — the dashboard then labels the axis 1, 2, 3, …
+    if hi - lo < bins and np.all(arr == np.round(arr)):
+        counts, edges = np.histogram(arr, bins=np.arange(lo - 0.5, hi + 1.0))
+    else:
+        counts, edges = np.histogram(arr, bins=bins)
     return [float(e) for e in edges], [int(c) for c in counts]
 
 

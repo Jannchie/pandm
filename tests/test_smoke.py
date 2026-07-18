@@ -627,6 +627,22 @@ def test_log_histogram_local(data_dir):
     assert adv["counts"][0] == [1, 2, 3] and adv["bins"][0] == [0.0, 1.0, 2.0, 3.0]
 
 
+def test_histogram_integer_samples_get_integer_bins():
+    pytest.importorskip("numpy")
+    from pandm.sdk import _histogram
+
+    # discrete integer samples: one bin per integer, centred on it — never
+    # fractional bin centres the data can't reach
+    edges, counts = _histogram([1, 2, 2, 3, 3, 3], 30)
+    assert edges == [0.5, 1.5, 2.5, 3.5]
+    assert counts == [1, 2, 3]
+    # a single repeated value still yields one centred bin
+    assert _histogram([2, 2, 2], 30) == ([1.5, 2.5], [3])
+    # continuous or wide-range integer data keeps uniform binning
+    assert len(_histogram([0.1, 0.5, 0.9], 30)[1]) == 30
+    assert len(_histogram(list(range(100)), 30)[1]) == 30
+
+
 def test_histogram_seq_dedup(data_dir):
     store = LocalStore(data_dir)
     store.create_run("r", "p", "n", {})
