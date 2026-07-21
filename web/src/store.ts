@@ -19,7 +19,8 @@ export const state = reactive({
   projects: [] as api.Project[],
   project: '' as string, // auto-picked on first load (most recently active)
   runs: [] as api.Run[],
-  selected: [] as string[],
+  selected: [] as string[], // compare set: which runs the charts plot
+  marked: [] as string[], // transient marquee/bulk-action set (delete target)
   touched: false, // user has manually changed the selection
   search: '',
   sidebarOpen: false, // mobile drawer; ignored on md+ where the sidebar is static
@@ -148,17 +149,39 @@ export function selectNone() {
   state.selected = []
 }
 
+// marquee/bulk-action set — mutated through here so its lifecycle (set, clear,
+// prune-on-refresh, filter-on-delete) stays owned in this file, like `selected`
+export function markRuns(ids: string[]) {
+  // skip the reactive write (and full list re-render) when the set is unchanged
+  if (
+    ids.length === state.marked.length &&
+    ids.every((id, i) => id === state.marked[i])
+  )
+    return
+  state.marked = ids
+}
+
+export function clearMarks() {
+  if (state.marked.length) state.marked = []
+}
+
 export async function setProject(project: string) {
   state.project = project
   await refresh()
 }
 
-export async function removeRun(id: string) {
-  await api.deleteRun(id)
-  clearEta(id)
-  dropRunCaches(id)
-  state.runs = state.runs.filter((r) => r.id !== id)
-  state.selected = state.selected.filter((s) => s !== id)
+// batch delete (row trash button deletes one; marquee + Delete deletes many) —
+// one refresh instead of one per run
+export async function removeRuns(ids: string[]) {
+  const doomed = new Set(ids)
+  await Promise.allSettled([...doomed].map((id) => api.deleteRun(id)))
+  for (const id of doomed) {
+    clearEta(id)
+    dropRunCaches(id)
+  }
+  state.runs = state.runs.filter((r) => !doomed.has(r.id))
+  state.selected = state.selected.filter((s) => !doomed.has(s))
+  state.marked = state.marked.filter((s) => !doomed.has(s))
   refresh()
 }
 
@@ -197,6 +220,11 @@ export async function refresh() {
     state.project = nextProject
     state.runs = nextRuns
     state.offline = false
+    // drop marquee marks for runs that vanished (deleted, project switch)
+    if (state.marked.length)
+      state.marked = state.marked.filter((id) =>
+        nextRuns.some((r) => r.id === id),
+      )
     if (!state.ready) {
       // honour the restored (localStorage / URL) selection, dropping ids that no
       // longer exist; fall back to the most recent runs so the page isn't empty
