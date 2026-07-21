@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import CliApprove from './components/CliApprove.vue'
+import ConfirmDialog from './components/ConfirmDialog.vue'
 import KeyGate from './components/KeyGate.vue'
 import Lightbox from './components/Lightbox.vue'
 import LoginGate from './components/LoginGate.vue'
@@ -254,6 +255,7 @@ watch(smoothing, (v) => {
       </main>
     </div>
     <Lightbox />
+    <ConfirmDialog />
     <CliApprove v-if="state.cliCode && state.auth.mode === 'user'" />
   </div>
 </template>

@@ -41,6 +41,14 @@ export const state = reactive({
     items: { url: string; step: number; caption: string | null }[]
     idx: number
   },
+  // in-app confirm dialog (replaces window.confirm); the resolver is kept out of
+  // reactive state — see askConfirm
+  confirm: null as null | {
+    title: string
+    body?: string
+    confirmLabel: string
+    danger: boolean
+  },
 })
 
 // the shared zoom's units differ per x-axis mode (step vs ms vs elapsed seconds),
@@ -163,6 +171,37 @@ export function markRuns(ids: string[]) {
 
 export function clearMarks() {
   if (state.marked.length) state.marked = []
+}
+
+// ---- in-app confirm dialog ------------------------------------------------
+// The pending promise's resolver lives here, not in reactive state, so `state`
+// stays plain data and the ConfirmDialog only needs the display fields.
+let confirmResolve: ((ok: boolean) => void) | null = null
+
+export function askConfirm(opts: {
+  title: string
+  body?: string
+  confirmLabel?: string
+  danger?: boolean
+}): Promise<boolean> {
+  confirmResolve?.(false) // a new prompt supersedes any dialog still open
+  return new Promise((resolve) => {
+    confirmResolve = resolve
+    state.confirm = {
+      title: opts.title,
+      body: opts.body,
+      confirmLabel: opts.confirmLabel ?? 'Confirm',
+      danger: opts.danger ?? false,
+    }
+  })
+}
+
+export function resolveConfirm(ok: boolean) {
+  if (!state.confirm) return
+  state.confirm = null
+  const resolve = confirmResolve
+  confirmResolve = null
+  resolve?.(ok)
 }
 
 export async function setProject(project: string) {

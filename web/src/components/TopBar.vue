@@ -4,6 +4,7 @@ import { rotateApiKey } from '../api'
 import { runColor } from '../colors'
 import {
   anyRunning,
+  askConfirm,
   removeProject,
   selectAll,
   selectNone,
@@ -24,13 +25,14 @@ function pickProject(project: string) {
   setProject(project)
 }
 
-function confirmDeleteProject(project: string, runs: number) {
-  if (
-    window.confirm(
-      `Delete project "${project}" and all ${runs} run(s), including media? This cannot be undone.`,
-    )
-  )
-    removeProject(project)
+async function confirmDeleteProject(project: string, runs: number) {
+  const ok = await askConfirm({
+    title: `Delete project "${project}"?`,
+    body: `All ${runs} run(s) and their media will be removed. This cannot be undone.`,
+    confirmLabel: 'Delete',
+    danger: true,
+  })
+  if (ok) removeProject(project)
 }
 
 const runsLabel = computed(() => {

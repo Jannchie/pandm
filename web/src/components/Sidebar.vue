@@ -4,6 +4,7 @@ import { runColor } from '../colors'
 import { estimateEta } from '../eta'
 import { fmtDuration, timeAgo } from '../fmt'
 import {
+  askConfirm,
   clearMarks,
   markRuns,
   removeRuns,
@@ -196,22 +197,25 @@ function stopAutoScroll() {
 }
 
 // ---- bulk delete (row trash, marquee marks, or the compare selection) -------
-function confirmAndRemove(ids: string[]) {
+async function confirmAndRemove(ids: string[]) {
   if (!ids.length) return
   const many = ids.length > 1
   const names = ids
     .map((id) => state.runs.find((r) => r.id === id)?.name ?? id)
     .slice(0, 5)
   const more = ids.length > 5 ? `\n…and ${ids.length - 5} more` : ''
-  if (
-    window.confirm(
-      `Delete ${ids.length} run${many ? 's' : ''} and ${many ? 'their' : 'its'} media? This cannot be undone.\n\n${names.join('\n')}${more}`,
-    )
-  )
-    removeRuns(ids)
+  const ok = await askConfirm({
+    title: `Delete ${ids.length} run${many ? 's' : ''}?`,
+    body: `${names.join('\n')}${more}\n\n${many ? 'They' : 'It'} and ${many ? 'their' : 'its'} media will be removed. This cannot be undone.`,
+    confirmLabel: 'Delete',
+    danger: true,
+  })
+  if (ok) removeRuns(ids)
 }
 
 function onKeydown(e: KeyboardEvent) {
+  // let the confirm dialog own the keyboard while it's open
+  if (state.confirm) return
   const t = e.target as HTMLElement | null
   const inField =
     t &&
