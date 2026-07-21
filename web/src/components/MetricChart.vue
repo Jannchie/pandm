@@ -441,14 +441,23 @@ async function update() {
       bottom: spec?.x_label ? 2 + axisNameGap : 2,
       containLabel: true,
     },
-    // drag-select to zoom x: a hidden toolbox dataZoom feed; its `datazoom` event
-    // lifts the picked range into state.xRange (below), which every chart renders
-    // via xAxis.min/max — so one drag zooms them all. filterMode 'none' clips the
+    // drag-select to zoom x: the toolbox dataZoom feature's brush controller powers
+    // the rubber-band select; its `datazoom` event lifts the picked range into
+    // state.xRange (below), which every chart renders via the inside dataZoom's
+    // startValue/endValue — so one drag zooms them all. filterMode 'none' clips the
     // axis without dropping points, keeping bands/ghosts aligned.
+    //
+    // The toolbox MUST render (show:true) — ToolboxView.render bails immediately
+    // when show is false, so the feature (and the brush controller that
+    // `takeGlobalCursor` arms below) is never built and the drag does nothing.
+    // Render it off-screen instead of hiding it: the drag behaviour lives on, while
+    // the unwanted icon stays out of sight and out of reach.
     toolbox: {
-      show: false,
+      show: true,
+      left: -9999,
+      top: -9999,
       feature: {
-        dataZoom: { show: true, yAxisIndex: 'none', filterMode: 'none' },
+        dataZoom: { yAxisIndex: 'none', filterMode: 'none' },
       },
     },
     dataZoom: [
