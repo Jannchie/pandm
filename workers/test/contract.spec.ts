@@ -1,8 +1,8 @@
 /** Contract tests mirroring tests/test_cloud.py's API-level assertions, so the
  * Workers implementation and the Python server keep speaking the same protocol. */
 
-import { SELF, env, fetchMock } from 'cloudflare:test'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { SELF, env } from 'cloudflare:test'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { SESSION_COOKIE, sign } from '../src/auth'
 import { upsertUser, type User } from '../src/db'
 
@@ -273,10 +273,19 @@ describe('media via R2', () => {
 })
 
 describe('github oauth', () => {
+  // pool-workers v0.19 removed `fetchMock`; stub globalThis.fetch instead. The
+  // worker under test shares this isolate, so its outbound calls land here —
+  // SELF.fetch does not, and keeps reaching the worker.
+  const stubbed = new Map<string, () => Response>()
   beforeAll(() => {
-    fetchMock.activate()
-    fetchMock.disableNetConnect()
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : String(input))
+      const hit = stubbed.get(`${init?.method ?? (input instanceof Request ? input.method : 'GET')} ${url.origin}${url.pathname}`)
+      if (hit) return hit()
+      throw new Error(`unexpected outbound fetch: ${url}`)
+    })
   })
+  afterAll(() => vi.unstubAllGlobals())
 
   it('full login roundtrip with state verification', async () => {
     const login = await api('/api/auth/login', { redirect: 'manual' })
@@ -293,14 +302,8 @@ describe('github oauth', () => {
     })
     expect(bad.status).toBe(403)
 
-    fetchMock
-      .get('https://github.com')
-      .intercept({ method: 'POST', path: '/login/oauth/access_token' })
-      .reply(200, { access_token: 'gh-token' }, { headers: { 'Content-Type': 'application/json' } })
-    fetchMock
-      .get('https://api.github.com')
-      .intercept({ path: '/user' })
-      .reply(200, { id: 777, login: 'dave', name: 'Dave', avatar_url: null }, { headers: { 'Content-Type': 'application/json' } })
+    stubbed.set('POST https://github.com/login/oauth/access_token', () => Response.json({ access_token: 'gh-token' }))
+    stubbed.set('GET https://api.github.com/user', () => Response.json({ id: 777, login: 'dave', name: 'Dave', avatar_url: null }))
 
     const cb = await api(`/api/auth/callback?code=c&state=${state}`, {
       headers: { Cookie: stateCookie },
