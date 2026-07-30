@@ -1,21 +1,12 @@
 <script setup lang="ts">
-import { computed, reactive, watch, watchEffect } from 'vue'
+import { computed, watch, watchEffect } from 'vue'
 import type { MediaItem, Run } from '../api'
 import { runColor } from '../colors'
 import { fmtStep } from '../fmt'
-import { getMedia, selectedRuns, state } from '../store'
+import { mediaByRun, selectedRuns, state } from '../store'
 
-const mediaByRun = reactive<Record<string, MediaItem[]>>({})
-
-watchEffect(() => {
-  for (const run of selectedRuns.value) {
-    getMedia(run)
-      .then((items) => {
-        mediaByRun[run.id] = items
-      })
-      .catch(() => {})
-  }
-})
+// mediaByRun is fetched in the store, not here: the tab bar shows how many images
+// the selection holds, and that count has to exist before this panel is mounted.
 
 // one flat grid over every (run, key) pair, driven by a single step slider —
 // per-key sections boxed each image into its own row and needed N sliders.

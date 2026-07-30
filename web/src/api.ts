@@ -46,6 +46,37 @@ export interface MetricStats {
   last: number | null
 }
 
+/** A threshold a metric must hold (run.define_metric(alarm=…)): one or more of
+ *  "must equal" / ceiling / floor. Its value is the moment it breaks. */
+export interface AlarmSpec {
+  ok?: number
+  max?: number
+  min?: number
+}
+
+/** A run whose process went quiet without anyone writing down how it ended: it was
+ *  OOM-killed, pod-evicted or `kill -9`'d, so no exit handler ran. The store already
+ *  presumes such a run crashed once its 15 s heartbeat has been silent for a minute —
+ *  but that verdict is an *inference*, and reporting it as plain `crashed` claims more
+ *  than is known: nothing distinguished "the trainer raised and said so" from "the
+ *  process vanished and we guessed".
+ *
+ *  The two are exactly separable, by the same rule `pandm finish --stale` uses: a real
+ *  crash (excepthook, `run.finish("crashed")`, `pandm finish`) writes `finished_at`;
+ *  an inferred one never does. So this needs no clock, no threshold of its own, and no
+ *  protocol change — and it self-heals if the process turns out to be alive and
+ *  heartbeats again. */
+export function runStale(run: Run): boolean {
+  return run.status === 'crashed' && run.finished_at === null
+}
+
+/** running / stale / finished / crashed — the state to *show*, not the stored one. */
+export function runState(
+  run: Run,
+): 'running' | 'stale' | 'finished' | 'crashed' {
+  return runStale(run) ? 'stale' : run.status
+}
+
 /** How the dashboard should render a metric — declared via run.define_metric. */
 export interface MetricSpec {
   min?: number // fixed y-axis lower bound
@@ -57,7 +88,12 @@ export interface MetricSpec {
   panel?: string // keys sharing a panel render as lines in one chart
   series?: string // legend label for this key's line (defaults to the key)
   band?: boolean | { lo: string; hi: string } // shaded CI: true = _lo/_hi suffix, or explicit keys
-  kind?: 'line' | 'bar' | 'scatter' // chart type (default 'line')
+  kind?: 'line' | 'bar' | 'scatter' | 'stat' | 'table' // chart type (default 'line')
+  importance?: 'primary' | 'normal' | 'debug' // page hierarchy: pinned / normal / folded away
+  alarm?: AlarmSpec // threshold that must hold; collapses the metric to a badge
+  axis?: 'left' | 'right' // panel member's y-axis (opt-in second scale)
+  scale?: 'linear' | 'log' // this metric's y-axis scale (default linear)
+  row?: string // row label inside a kind="table" panel (the entity this key describes)
   x_label?: string // x-axis title (e.g. 'Episode'); applies to every chart type
   y_label?: string // y-axis title (e.g. 'Reward')
   x_ticks?: string[] // categorical x tick labels, positional — only on a category axis (bar)

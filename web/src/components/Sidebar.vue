@@ -1,11 +1,14 @@
 <script setup lang="ts">
+import type { Run } from '../api'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { runState } from '../api'
 import { runColor } from '../colors'
 import { estimateEta } from '../eta'
 import { fmtDuration, timeAgo } from '../fmt'
 import {
   askConfirm,
   clearMarks,
+  clock,
   markRuns,
   removeRuns,
   selectAll,
@@ -15,21 +18,23 @@ import {
   visibleRuns,
 } from '../store'
 
-// per-second clock so the "time left" counts down between polls (finishAt is fixed)
-const now = ref(Date.now() / 1000)
-let ticker: ReturnType<typeof setInterval>
-onMounted(
-  () => (ticker = setInterval(() => (now.value = Date.now() / 1000), 1000)),
-)
-onUnmounted(() => clearInterval(ticker))
+// the shared 1 s clock: "time left" counts down between polls (finishAt is fixed),
+// and a run that goes quiet crosses into `stale` with no new data to trigger it
+const now = computed(() => clock.now)
 
-// pair each run with its ETA; recomputed only when the run data changes (not every tick)
+// pair each run with its ETA; recomputed only when the run data changes (not every
+// tick). Staleness is read per render instead — it depends on the clock, and folding
+// it in here would re-estimate every ETA once a second.
 const rows = computed(() =>
   visibleRuns.value.map((run) => ({
     run,
     eta: run.status === 'running' ? estimateEta(run) : null,
   })),
 )
+
+// the state to display: `crashed` with no finished_at means nobody wrote a verdict,
+// the process just vanished — see api.runStale
+const stateOf = (run: Run) => runState(run)
 
 const MIN_W = 200
 const MAX_W = 560
@@ -440,8 +445,15 @@ onUnmounted(() => {
             </span>
           </div>
           <div class="text-[12.5px] text-fg-dim truncate leading-tight">
+            <template v-if="stateOf(run) === 'stale'">
+              <span class="text-warn"
+                >no report for {{ fmtDuration(now - run.updated_at) }}</span
+              >
+            </template>
             <template
-              v-if="run.status === 'running' && eta && eta.fraction != null"
+              v-else-if="
+                stateOf(run) === 'running' && eta && eta.fraction != null
+              "
             >
               {{ Math.round(eta.fraction * 100) }}%<template
                 v-if="eta.finishAt"
@@ -456,12 +468,20 @@ onUnmounted(() => {
           </div>
         </div>
         <span
-          v-if="run.status === 'running'"
+          v-if="stateOf(run) === 'running'"
           class="w-1.5 h-1.5 rounded-full bg-ok pulse shrink-0"
           title="running"
         />
+        <!-- `running` with a dead heartbeat: the process was killed without getting
+             to write `crashed`, so the stored status can't be trusted on its own -->
+        <span
+          v-else-if="stateOf(run) === 'stale'"
+          class="text-warn/80 text-[12px] leading-none font-bold shrink-0"
+          title="stale — status says running but nothing has been reported for a while (OOM-killed? pod restarted?)"
+          >?</span
+        >
         <svg
-          v-else-if="run.status === 'crashed'"
+          v-else-if="stateOf(run) === 'crashed'"
           width="11"
           height="11"
           viewBox="0 0 24 24"
@@ -495,7 +515,7 @@ onUnmounted(() => {
 
         <!-- progress bar pinned to the row's bottom edge -->
         <div
-          v-if="run.status === 'running' && eta && eta.fraction != null"
+          v-if="stateOf(run) === 'running' && eta && eta.fraction != null"
           class="absolute left-0 bottom-0 h-0.5 rounded-r-full transition-[width] duration-700 ease-out pointer-events-none"
           :style="{
             width: `${Math.max(2, eta.fraction * 100)}%`,

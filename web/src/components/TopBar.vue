@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { rotateApiKey } from '../api'
+import { rotateApiKey, runState } from '../api'
 import { runColor } from '../colors'
 import {
   anyRunning,
+  anyStale,
   askConfirm,
   removeProject,
   selectAll,
@@ -247,9 +248,15 @@ async function rotateKey() {
             >{{ run.name }}</span
           >
           <span
-            v-if="run.status === 'running'"
+            v-if="runState(run) === 'running'"
             class="ml-auto w-1.5 h-1.5 rounded-full bg-ok pulse shrink-0"
           />
+          <span
+            v-else-if="runState(run) === 'stale'"
+            class="ml-auto text-warn/80 text-[12px] leading-none font-bold shrink-0"
+            title="stale — stopped reporting"
+            >?</span
+          >
         </div>
         <div
           v-if="state.runs.length === 0"
@@ -270,6 +277,16 @@ async function rotateKey() {
       </template>
       <template v-else-if="!state.live">
         <span class="hidden sm:inline">paused</span>
+      </template>
+      <!-- a run whose heartbeat died still says `running`; surface that here rather
+           than letting "live" imply the training is fine -->
+      <template v-else-if="anyStale">
+        <span class="w-1.5 h-1.5 rounded-full bg-warn" />
+        <span
+          class="text-warn"
+          title="a run says running but has stopped reporting"
+          >stale</span
+        >
       </template>
       <template v-else-if="anyRunning">
         <span class="w-1.5 h-1.5 rounded-full bg-ok pulse" />

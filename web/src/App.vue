@@ -7,16 +7,24 @@ import Lightbox from './components/Lightbox.vue'
 import LoginGate from './components/LoginGate.vue'
 import MediaPanel from './components/MediaPanel.vue'
 import MetricsPanel from './components/MetricsPanel.vue'
+import ScatterPanel from './components/ScatterPanel.vue'
 import Sidebar from './components/Sidebar.vue'
 import TablePanel from './components/TablePanel.vue'
 import TopBar from './components/TopBar.vue'
 import { fmtStep } from './fmt'
-import { bootstrap, selectedRuns, state } from './store'
+import {
+  bootstrap,
+  groupedSelection,
+  selectedRuns,
+  state,
+  tabCounts,
+} from './store'
 
 const TABS = [
   { id: 'metrics', label: 'Metrics' },
   { id: 'media', label: 'Media' },
   { id: 'table', label: 'Table' },
+  { id: 'scatter', label: 'Scatter' },
 ] as const
 
 onMounted(() => bootstrap())
@@ -52,13 +60,25 @@ watch(smoothing, (v) => {
             <button
               v-for="t in TABS"
               :key="t.id"
-              class="relative h-full px-2.5 text-[14px] transition-colors cursor-pointer shrink-0"
+              class="relative h-full px-2.5 flex items-center gap-1.5 text-[14px] transition-colors cursor-pointer shrink-0"
               :class="
                 state.tab === t.id ? 'text-fg' : 'text-fg-dim hover:text-fg-mut'
               "
               @click="state.tab = t.id"
             >
               {{ t.label }}
+              <!-- how much this tab holds for the current selection; absent rather
+                   than 0 when it holds nothing — the tab's own empty state says why -->
+              <span
+                v-if="tabCounts[t.id]"
+                class="px-1.25 py-px rounded-full text-[11px] leading-none tabular-nums transition-colors"
+                :class="
+                  state.tab === t.id
+                    ? 'bg-accent-hi/15 text-accent-hi'
+                    : 'bg-elev text-fg-dim'
+                "
+                >{{ tabCounts[t.id] }}</span
+              >
               <span
                 v-if="state.tab === t.id"
                 class="absolute inset-x-2 bottom-0 h-px bg-accent-hi"
@@ -69,7 +89,11 @@ watch(smoothing, (v) => {
           <!-- controls: own row on mobile, right-aligned on desktop -->
           <div
             class="items-center px-2 min-h-9 md:h-9 flex-wrap gap-y-1 md:flex-nowrap md:flex md:flex-1 md:min-w-0 md:overflow-x-auto"
-            :class="state.tab !== 'table' ? 'flex' : 'hidden'"
+            :class="
+              state.tab === 'metrics' || state.tab === 'media'
+                ? 'flex'
+                : 'hidden'
+            "
           >
             <!-- pushes controls right on desktop; on mobile they left-align and wrap -->
             <div class="hidden md:block flex-1 min-w-2" />
@@ -108,8 +132,10 @@ watch(smoothing, (v) => {
               >
             </div>
 
+            <!-- the wrapper's static md:flex beats a dynamic `hidden`, so each
+                 control still has to opt out of the tabs it means nothing on -->
             <div
-              v-if="state.tab !== 'table'"
+              v-if="state.tab === 'metrics' || state.tab === 'media'"
               class="hidden md:flex items-center gap-2 mr-3 shrink-0"
               title="columns"
             >
@@ -148,6 +174,50 @@ watch(smoothing, (v) => {
             </div>
 
             <template v-if="state.tab === 'metrics'">
+              <!-- 107 keys in one run is normal; a filter is not a luxury -->
+              <div class="relative mr-3 shrink-0">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  class="absolute left-2 top-1/2 -translate-y-1/2 text-fg-dim pointer-events-none"
+                >
+                  <circle
+                    cx="11"
+                    cy="11"
+                    r="7"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  />
+                  <path
+                    d="M20 20l-3.5-3.5"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <input
+                  v-model="state.metricSearch"
+                  placeholder="Filter metrics…"
+                  class="input-base w-36 md:w-44 h-6.5 pl-7 pr-6 !text-[13px]"
+                />
+                <button
+                  v-if="state.metricSearch"
+                  class="absolute right-1.5 top-1/2 -translate-y-1/2 text-fg-dim hover:text-fg transition-colors cursor-pointer"
+                  title="clear"
+                  @click="state.metricSearch = ''"
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M6 6l12 12M18 6L6 18"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </button>
+              </div>
               <div
                 class="flex items-center gap-2 mr-3 shrink-0"
                 title="smoothing"
@@ -203,9 +273,30 @@ watch(smoothing, (v) => {
               <button
                 class="btn font-mono text-[13px] shrink-0"
                 :class="{ 'btn-on !text-accent-hi': state.logScale }"
+                title="log y-axis on every chart (a metric can also declare scale='log')"
                 @click="state.logScale = !state.logScale"
               >
                 log
+              </button>
+              <!-- one training split across resumed runs is one curve -->
+              <button
+                v-if="groupedSelection"
+                class="btn font-mono text-[13px] shrink-0"
+                :class="{ 'btn-on !text-accent-hi': state.stitchGroups }"
+                title="stitch same-group runs into one continuous curve"
+                @click="state.stitchGroups = !state.stitchGroups"
+              >
+                ▤ stitch
+              </button>
+              <!-- comparing runs normally dissolves panels; keep them side by side -->
+              <button
+                v-if="selectedRuns.length > 1"
+                class="btn font-mono text-[13px] shrink-0"
+                :class="{ 'btn-on !text-accent-hi': state.keepPanels }"
+                title="keep panels whole when comparing runs (one copy per run)"
+                @click="state.keepPanels = !state.keepPanels"
+              >
+                ⧉ panels
               </button>
               <button
                 v-if="state.xRange"
@@ -222,7 +313,11 @@ watch(smoothing, (v) => {
         <!-- panel -->
         <div class="flex-1 min-h-0 overflow-y-auto">
           <div
-            v-if="state.ready && selectedRuns.length === 0"
+            v-if="
+              state.ready &&
+              selectedRuns.length === 0 &&
+              state.tab !== 'scatter'
+            "
             class="h-full flex flex-col items-center justify-center gap-3 text-fg-dim"
           >
             <svg
@@ -250,6 +345,7 @@ watch(smoothing, (v) => {
           </div>
           <MetricsPanel v-else-if="state.tab === 'metrics'" />
           <MediaPanel v-else-if="state.tab === 'media'" />
+          <ScatterPanel v-else-if="state.tab === 'scatter'" />
           <TablePanel v-else />
         </div>
       </main>
