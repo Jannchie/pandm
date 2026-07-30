@@ -98,9 +98,10 @@ def simulate(
 
 
 def simulate_rl(project: str, name: str, steps: int = 300, seed: int = 0) -> None:
-    """A self-play RL run showing off the richer chart types: a multi-line reward
-    panel (proposal A), a win-rate confidence band (B), per-seat final win rates as
-    bars (C), and the episode-reward distribution over time as a heatmap (D)."""
+    """A self-play RL run showing off every chart type and the page hierarchy: a
+    multi-line reward panel, a win-rate confidence band, per-seat final win rates as
+    bars, the episode-reward distribution as a heatmap over time, a stat card, a
+    per-opponent table, a two-scale panel, and importance/alarm declarations."""
     try:
         import numpy as np  # pyright: ignore[reportMissingImports]
     except ImportError:
@@ -114,7 +115,7 @@ def simulate_rl(project: str, name: str, steps: int = 300, seed: int = 0) -> Non
         config={"algo": "ppo", "seed": seed},
     )
 
-    # proposal A: three reward terms share one "reward" panel -> one chart, three lines
+    # three reward terms share one "reward" panel -> one chart, three lines
     run.define_metric(
         "reward/total",
         panel="reward",
@@ -123,20 +124,60 @@ def simulate_rl(project: str, name: str, steps: int = 300, seed: int = 0) -> Non
     )
     run.define_metric("reward/shaping", panel="reward", series="shaping")
     run.define_metric("reward/terminal", panel="reward", series="terminal")
-    # proposal B: mean win rate + a shaded 95% CI (the _lo/_hi suffix convention)
+    # the metric this run is judged on -> pinned to the top of the page, large
     run.define_metric(
         "eval/win_rate",
         unit="percent",
         goal="max",
         baseline=0.5,
         band=True,
+        importance="primary",
         description="50 局评估胜率均值，阴影为 95% CI",
     )
-    # proposal C: each seat's final win rate as a bar
+    # each seat's final win rate as a bar
     for s in range(4):
         run.define_metric(
             f"final/seat{s}", panel="seat_winrate", kind="bar", series=f"seat{s}"
         )
+    # two related keys an order of magnitude apart: the smaller would be a line flat
+    # against the axis, so give the larger its own scale (and the loss a log axis)
+    run.define_metric(
+        "train/loss",
+        panel="train/optim",
+        series="loss",
+        scale="log",
+        description="总损失（对数轴）",
+    )
+    run.define_metric(
+        "train/grad_norm",
+        panel="train/optim",
+        series="grad_norm",
+        axis="right",
+        description="梯度范数，量级比 loss 大 10×",
+    )
+    # a slow-moving scalar earns a value + sparkline, not a whole chart
+    run.define_metric("opt/lr", kind="stat", description="学习率（余弦退火）")
+    # an invariant that must hold: a badge while it holds, red and on top when it breaks
+    run.define_metric(
+        "game/illegal_moves",
+        alarm={"ok": 0},
+        description="非法动作数，必须恒为 0（非零说明动作掩码有 bug）",
+    )
+    # per-opponent results are a table by nature — as 6 lines they'd read as noise
+    for i, opp in enumerate(("random", "greedy", "self-play")):
+        run.define_metric(
+            f"pool/{i}/win_rate",
+            panel="pool",
+            kind="table",
+            row=opp,
+            series="胜率",
+            unit="percent",
+        )
+        run.define_metric(
+            f"pool/{i}/games", panel="pool", kind="table", row=opp, series="局数"
+        )
+    # plumbing: folded into the debug section at the page bottom
+    run.define_metric("sys/replay_rows", importance="debug", description="replay 行数")
 
     for step in range(steps):
         p = step / steps
@@ -147,6 +188,16 @@ def simulate_rl(project: str, name: str, steps: int = 300, seed: int = 0) -> Non
                 "reward/shaping": shaping,
                 "reward/terminal": terminal,
                 "reward/total": shaping + terminal,
+                "train/loss": 3.0 * math.exp(-4 * p) + 0.03 + abs(rng.normal(0, 0.01)),
+                "train/grad_norm": 30 * math.exp(-2 * p) + 3 + rng.normal(0, 1.0),
+                "opt/lr": 3e-4 * 0.5 * (1 + math.cos(math.pi * p)),
+                "game/illegal_moves": 0,  # the alarm holds -> stays a quiet badge
+                "sys/replay_rows": 20_000 + step * 128,
+                **{
+                    f"pool/{i}/win_rate": min(0.95, 0.35 + 0.2 * i + 0.4 * p)
+                    for i in range(3)
+                },
+                **{f"pool/{i}/games": 40 * (step + 1) for i in range(3)},
             },
             step=step,
         )

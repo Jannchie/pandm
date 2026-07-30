@@ -32,9 +32,25 @@ pandm ui   # opens http://127.0.0.1:7878
 
 The dashboard overlays selected runs per metric, with smoothing, log scale, step/time axes, an image browser with a step slider, and a config/summary comparison table. It polls while runs are alive, so curves grow during training.
 
+### Telling the dashboard what matters
+
+A run that logs 30 metrics has at most 3 that decide anything, and alphabetical order can't tell them apart. The training code knows which is which, so it says so — every option below is optional, and unset means the previous behaviour:
+
+```python
+run.define_metric("vs_baseline/rank", importance="primary", goal="min")  # pinned, large, top of page
+run.define_metric("dropped_rows", importance="debug")                    # folded away at the bottom
+run.define_metric("budget_exceeded_rate", alarm={"ok": 0})               # a badge until it trips, then red + on top
+run.define_metric("train/loss", panel="optim", scale="log")              # per-metric log axis
+run.define_metric("train/grad_norm", panel="optim", axis="right")        # its own scale, an order of magnitude apart
+run.define_metric("opt/lr", kind="stat")                                 # one value + sparkline, 1/6 of a slot
+run.define_metric("pool/0/rank", panel="pool", kind="table", row="anchor", series="avg rank")
+```
+
+`alarm` also warns on stderr the first time it trips and POSTs the violation to `PANDM_ALARM_WEBHOOK` if set — a 30-hour unattended run has nobody watching the page. Charts carry hover-highlight and click-a-legend-entry-to-isolate, so a ten-line panel stays readable; the toolbar filters 100+ keys by name, stitches resumed runs of one `group` into a single curve, and a **Scatter** tab plots one point per run (pick a metric for each axis) for cross-run questions.
+
 ## Usage
 
-`step` is optional (an internal counter is used). Runs end as `finished` or `crashed`: uncaught exceptions are detected via `sys.excepthook` (and the context manager), and hard-killed processes (`kill -9`, OOM) are presumed crashed once their 15s heartbeat goes quiet for 60s — self-healing if the process was merely suspended.
+`step` is optional (an internal counter is used). Runs end as `finished` or `crashed`: uncaught exceptions are detected via `sys.excepthook` (and the context manager), and hard-killed processes (`kill -9`, OOM) are presumed crashed once their 15s heartbeat goes quiet for 60s — self-healing if the process was merely suspended. Because that verdict is an inference and not a witnessed crash, the dashboard shows it as its own **stale** state (a grey `?`) rather than asserting the trainer raised; `pandm finish --stale` writes it down for good.
 
 ```python
 with pandm.init(project="mnist") as run:
@@ -141,7 +157,7 @@ Without OAuth env vars the server falls back to single-tenant mode — `pandm se
 | `run.log(metrics, step=None)` | log scalar metrics |
 | `run.log_image(key, image, step=None, caption=None)` | log an image |
 | `run.summary(values)` | record run-level scalars (the chosen checkpoint's metric row); merges across calls |
-| `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None, description=None)` | declare a metric's display: fixed axis, `unit="percent"`, `baseline` line, `goal` for the leading run, `description` subtitle |
+| `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None, description=None, panel=None, series=None, band=None, kind="line", importance=None, alarm=None, axis=None, scale=None, row=None, x_label=None, y_label=None, x_ticks=None, y_ticks=None)` | declare a metric's display: fixed axis, `unit="percent"`, `baseline` line, `goal` for the leading run, `description` subtitle, `panel` grouping, `importance` ranking, `alarm` thresholds — see *Telling the dashboard what matters* |
 | `run.finish(status="finished")` | end the run (also via `atexit`) |
 | `run.delete()` | delete the run + media, local and cloud — for throwaway smoke-test runs |
 | `GET /api/docs` | REST API reference on any running server |

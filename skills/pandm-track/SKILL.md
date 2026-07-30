@@ -101,7 +101,7 @@ title and subtitle come first.
 | `run.set_progress(current, total=None)` | Report progress in a custom unit (epochs, samples) for the ETA. |
 | `run.ingest_csv(path, *, step_column=None, include=None, exclude=None, prefix="")` | Import metric rows from a CSV a closed-source trainer writes; incremental (row-count cursor). Returns rows ingested. See *Trainers you can't inject a logger into*. |
 | `run.watch_csv(path, *, interval=5.0, step_column=None, include=None, exclude=None, prefix="")` | Tail that CSV from a background thread until the run finishes; returns a `stop()`. Same filtering args as `ingest_csv`. |
-| `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None, description=None, panel=None, series=None, band=None, kind="line", x_label=None, y_label=None, x_ticks=None, y_ticks=None)` | Declare how the dashboard renders a metric. See *Shaping how a metric renders*. |
+| `run.define_metric(key, *, min=None, max=None, unit=None, goal=None, baseline=None, description=None, panel=None, series=None, band=None, kind="line", importance=None, alarm=None, axis=None, scale=None, row=None, x_label=None, y_label=None, x_ticks=None, y_ticks=None)` | Declare how the dashboard renders a metric. See *Shaping how a metric renders*. |
 | `run.finish(status="finished")` | End the run. Also runs automatically at process exit. |
 | `run.delete()` | Delete this run + its media, locally and (in cloud mode) on the server. |
 
@@ -145,6 +145,52 @@ run.define_metric("reward/mean", min=-1, max=1)   # known-range scalar, plain ax
 run.define_metric("final/seat", kind="bar", x_ticks=["北", "东", "南", "西"], y_label="胜率")
 ```
 
+## Rank what matters — `importance` and `alarm`
+
+**A run that logs 30 metrics has, at most, 3 that decide anything.** Say which. The
+training code is the only place that knows, and thirty equal-sized charts in
+alphabetical order is the same as no charts: the north-star metric sits between two
+debug counters and a newcomer can't tell them apart.
+
+Two declarations do this, and you should reach for both whenever a run logs more than
+a handful of keys:
+
+```python
+# the metrics the experiment is judged on -> pinned to a large row at the top
+run.define_metric("vs_baseline/avg_rank", importance="primary", goal="min",
+                  description="对基线的平均顺位，整个实验的成败判据")
+# counters that only matter when something is wrong -> folded away at the bottom
+run.define_metric("dropped_rows", importance="debug")
+run.define_metric("hand/total",   importance="debug")
+```
+
+- `importance="primary"` — the 3–5 keys that answer the run's question. More than
+  five and it stops being a hierarchy.
+- `importance="debug"` — internal counters, sample sizes, plumbing. Collapsed by
+  default, one click from open.
+- `importance="normal"` (the default) — everything else; unchanged behaviour.
+- A panel is as important as its most important member.
+
+**`alarm` is for the metrics whose only value is the moment they break.** A truncation
+rate that must stay at 0, an OOM counter, an illegal-action count: as charts they are a
+permanently flat line eating a grid slot, and the one time they matter they're buried
+in chart 23 of 30. Declared as an alarm, they collapse to a badge that costs nothing
+until it trips — then it turns red, jumps to the top of the page, and opens the curve.
+
+```python
+run.define_metric("game/budget_exceeded_rate", alarm={"ok": 0}, unit="percent",
+                  description="长对局被静默截断的比例，必须恒为 0（非零会产生选择偏差）")
+run.define_metric("sys/oom_retries", alarm={"max": 0})       # a ceiling
+run.define_metric("data/coverage",   alarm={"min": 0.9})     # a floor
+```
+
+- `{"ok": v}` must equal, `{"max": v}` ceiling, `{"min": v}` floor. Combine freely.
+- Evaluated over the run's **whole history**, so a violation two hours ago is still
+  flagged — the point of the feature is the run nobody is watching.
+- The client also warns on stderr the first time each alarm trips, and POSTs the
+  violation as JSON to `PANDM_ALARM_WEBHOOK` when that env var is set. A 30-hour
+  unattended run has nobody looking at the page.
+
 **Multi-line panel (`panel=`)** — group related keys into one chart, one line each
 (reward decompositions, loss terms, multi-seat/opponent win rates):
 
@@ -156,7 +202,45 @@ run.define_metric("reward/terminal", panel="reward")
 ```
 
 Keys sharing a `panel` render together with a legend. Comparing several runs falls
-back to one chart per key (coloured by run), so run-vs-run reading still works.
+back to one chart per key (coloured by run), so run-vs-run reading still works — the
+dashboard's *⧉ panels* toggle keeps them whole instead, one copy of the panel per run.
+
+Two members whose magnitudes differ by an order of magnitude would leave the smaller
+one flat against the axis. `axis="right"` gives it its own scale; `scale="log"` puts a
+metric's axis on a log scale (for loss curves whose first 10% of steps eat 90% of the
+linear range). Both are per-metric and neither is ever inferred — a second y-axis is
+easy to misread, so it exists only when the author asks for it:
+
+```python
+run.define_metric("train/loss",      panel="train/optim", scale="log")
+run.define_metric("train/grad_norm", panel="train/optim", axis="right")
+```
+
+Members of one panel each keep their own `description`: the chart shows a synthesised
+subtitle and the tooltip names each line's note as you hover it. If two members declare
+*different* values for an axis-shaping field (`unit`, `min`, `max`, `baseline`, …) the
+panel flags a ⚠ instead of silently using one of them — split them with `axis="right"`
+or give them separate panels.
+
+**Stat card (`kind="stat"`)** — one value plus a mini sparkline, a sixth of a chart
+slot. For the slow-moving quantities that don't earn a full chart: lr, buffer rows,
+replay size.
+
+```python
+run.define_metric("opt/lr", kind="stat", description="学习率（余弦退火）")
+```
+
+**Table panel (`kind="table"`)** — rows are entities, columns are metrics. Per-opponent
+win rates, per-bucket sample counts: denominator-ish data is a table by nature, and as
+eight lines on one chart it reads as noise with the counts unreadable. `row=` names the
+entity, `series=` names the column, and both axes read in the order you called
+`define_metric` — never rename a key to reorder a column, a key is data:
+
+```python
+for i, opp in enumerate(["anchor", "snap0", "snap1", "self-play"]):
+    run.define_metric(f"pool/{i}/rank",  panel="pool", kind="table", row=opp, series="平均顺位")
+    run.define_metric(f"pool/{i}/games", panel="pool", kind="table", row=opp, series="局数")
+```
 
 **Confidence band (`band=`)** — a mean line with a shaded interval, for noisy evals.
 `band=True` pairs the metric with its `_lo` / `_hi` siblings by name (or name them
@@ -228,8 +312,12 @@ pandm: run "baseline" [a1b2c3d4] -> https://pandm.jannchie.com/?project=mnist&ru
   arrays in `[0,1]` are auto-scaled to `[0,255]`), a file path, or raw PNG bytes — don't
   pre-convert tensors.
 - **Run status** is `running` → `finished` or `crashed`. Uncaught exceptions (via
-  `sys.excepthook`) and hard kills (`kill -9`, OOM — the 15 s heartbeat quiet for 60 s)
-  become `crashed`. Reach `finish()` / exit the `with` block for `finished`.
+  `sys.excepthook`) reach `crashed`; reach `finish()` / exit the `with` block for
+  `finished`. A **hard kill** (`kill -9`, the OOM killer, an evicted pod) runs no exit
+  handler at all, so the stored status stays `running` forever — the dashboard infers
+  that case instead, showing a run whose 15 s heartbeat has been quiet for two minutes
+  as **stale** (a grey `?`, not a green pulse). Don't write "check max(step) to see if
+  it's alive" in your docs; read the run's state.
 - **ETA:** pass `total_steps=` and progress follows your `log(step=...)` automatically;
   for other units call `run.set_progress(current, total)`.
 
@@ -324,6 +412,12 @@ Run this checklist before you call the instrumentation done:
 - [ ] **Every metric** that isn't self-explanatory has `define_metric(description=...)`?
 - [ ] **Every proportion** (accuracy, win/success rate) uses `unit="percent"`, and every known-range metric pins `min`/`max`?
 - [ ] **Related keys** grouped into one `panel=` instead of N lonely charts?
+- [ ] More than a handful of metrics — did you rank them (`importance="primary"` on the
+      3–5 that decide the experiment, `"debug"` on the plumbing)?
+- [ ] **Every must-hold invariant** (a rate that must stay 0, an OOM/illegal counter)
+      declared as `alarm=` instead of a forever-flat chart?
+- [ ] Per-entity tables (`kind="table"`) and slow scalars (`kind="stat"`) not drawn as
+      lines?
 - [ ] Titles & subtitles in **the user's language**, each subtitle saying what the name can't?
 - [ ] **Throwaway / smoke-test runs deleted** (`run.delete()` or `pandm delete <id> -y`)?
 
