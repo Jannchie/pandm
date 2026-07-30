@@ -78,6 +78,35 @@ def _coerce_scalars(values: Mapping[str, Any]) -> dict[str, float]:
     return scalars
 
 
+_ALARM_BOUNDS = ("ok", "max", "min")
+
+
+def _coerce_alarm(alarm: Any) -> dict[str, float]:
+    """Validate a define_metric(alarm=...) threshold into {bound: float}. One or more of
+    `ok` (must equal), `max` (ceiling), `min` (floor); anything else is a typo worth
+    raising for, since a silently ignored alarm is worse than no alarm."""
+    if not isinstance(alarm, Mapping) or not alarm:
+        raise ValueError(
+            'alarm must be a non-empty dict like {"ok": 0}, {"max": 0.01}, or {"min": 0.9}'
+        )
+    unknown = [k for k in alarm if k not in _ALARM_BOUNDS]
+    if unknown:
+        raise ValueError(
+            f"unknown alarm bound(s) {unknown}; expected one of {list(_ALARM_BOUNDS)}"
+        )
+    return {str(k): float(v) for k, v in alarm.items()}
+
+
+def _alarm_violated(threshold: Mapping[str, float], value: float) -> bool:
+    """Does `value` breach this alarm? Shared by the client-side check and the docs'
+    definition of each bound, so the dashboard's badge and the stderr warning agree."""
+    if "ok" in threshold and value != threshold["ok"]:
+        return True
+    if "max" in threshold and value > threshold["max"]:
+        return True
+    return "min" in threshold and value < threshold["min"]
+
+
 def _print_run_banner(run: "Run", resolved: Any) -> None:
     """wandb-style one-liner on init: makes the run easy to open and — for the
     throwaway runs an agent leaves behind — easy to clean up, since the id is right
@@ -317,7 +346,7 @@ def summary(values: dict[str, Any]) -> None:
 def define_metric(key: str, **spec: Any) -> None:
     """Declare a metric's display spec on the most recently started run (mirrors
     run.define_metric: min, max, unit, goal, baseline, panel, series, band, kind,
-    x_label, y_label, x_ticks, y_ticks)."""
+    importance, alarm, axis, scale, row, x_label, y_label, x_ticks, y_ticks)."""
     _current().define_metric(key, **spec)
 
 
@@ -365,6 +394,10 @@ class Run:
         self._progress_total: float | None = float(total_steps) if total_steps else None
         self._progress_dirty = False
         self._warned_non_numeric = False  # one warning per run, then drop silently
+        # define_metric(alarm=...) thresholds, checked against every logged value so an
+        # unattended run reports a violation instead of burying it in chart 23 of 30.
+        self._alarms: dict[str, dict[str, float]] = {}
+        self._alarms_fired: set[str] = set()  # one notification per key, not per step
         # ingest_csv cursors (rows already consumed, keyed by resolved path) and the
         # background watch_csv tailers, so finish()/delete() can drain and stop them.
         self._csv_cursors: dict[str, int] = {}
@@ -430,6 +463,8 @@ class Run:
                 "(only scalars are logged; further drops are silent)",
                 file=sys.stderr,
             )
+        if self._alarms:
+            self._check_alarms(rows)
         with self._buf_lock:
             self._buffer.extend(rows)
             if (
@@ -440,6 +475,62 @@ class Run:
             should_flush = len(self._buffer) >= _FLUSH_THRESHOLD
         if should_flush:
             self._flush()
+
+    def _check_alarms(self, rows: list[tuple[str, int, float, float]]) -> None:
+        """Report the first violation of each define_metric(alarm=...) threshold: a
+        stderr line, plus a POST to PANDM_ALARM_WEBHOOK when one is configured. Fires
+        once per key per run — a rate that stays broken must not become a log flood."""
+        for key, step, value, _ts in rows:
+            threshold = self._alarms.get(key)
+            if threshold is None or key in self._alarms_fired:
+                continue
+            if not _alarm_violated(threshold, value):
+                continue
+            self._alarms_fired.add(key)
+            bound = ", ".join(f"{k}={v:g}" for k, v in threshold.items())
+            print(
+                f"pandm: ALARM {key}={value:g} at step {step} violates {bound} "
+                f"(run {self.id})",
+                file=sys.stderr,
+            )
+            self._post_alarm_webhook(key, step, value, threshold)
+
+    def _post_alarm_webhook(
+        self, key: str, step: int, value: float, threshold: dict[str, float]
+    ) -> None:
+        """Fire-and-forget POST of one alarm violation. Off the training thread and
+        fully swallowed: an unreachable webhook must not slow or kill the run."""
+        url = os.environ.get("PANDM_ALARM_WEBHOOK")
+        if not url:
+            return
+        payload = {
+            "run_id": self.id,
+            "run_name": self.name,
+            "project": self.project,
+            "key": key,
+            "step": step,
+            "value": value,
+            "threshold": threshold,
+            "ts": time.time(),
+        }
+
+        def _send() -> None:
+            import json
+            import urllib.request
+
+            try:
+                req = urllib.request.Request(
+                    url,
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+                urllib.request.urlopen(req, timeout=10).close()  # noqa: S310 — user-configured URL
+            except Exception:  # noqa: BLE001 — a webhook must never kill training
+                pass
+
+        threading.Thread(
+            target=_send, daemon=True, name=f"pandm-alarm-{self.id}"
+        ).start()
 
     def set_progress(self, current: float, total: float | None = None) -> None:
         """Report training progress for the dashboard ETA. `current`/`total` are in
@@ -479,6 +570,11 @@ class Run:
         series: str | None = None,
         band: bool | dict | None = None,
         kind: str | None = None,
+        importance: str | None = None,
+        alarm: dict | None = None,
+        axis: str | None = None,
+        scale: str | None = None,
+        row: str | None = None,
         x_label: str | None = None,
         y_label: str | None = None,
         x_ticks: list[str] | None = None,
@@ -504,12 +600,51 @@ class Run:
         (defaults to the key). `band` draws a shaded confidence interval: `band=True`
         pairs the key with its `_lo`/`_hi` siblings, or pass `{"lo": ..., "hi": ...}`
         with explicit key names. `kind` picks the chart type — "line" (default), "bar"
-        (category comparison: seat0/1/2/3 final win rates), or "scatter".
+        (category comparison: seat0/1/2/3 final win rates), "scatter", "stat" (a single
+        value card with a mini sparkline, for slow-moving knobs like lr), or "table" (a
+        panel of `row=`-labelled entities × metric columns — the right shape for
+        per-opponent win rates or per-bucket sample counts, which as 8 lines on one chart
+        read as noise).
 
             run.define_metric("reward/total",   panel="reward")     # \
             run.define_metric("reward/shaping", panel="reward")     #  } one chart, 3 lines
             run.define_metric("reward/terminal", panel="reward")    # /
             run.define_metric("eval/win_rate", band=True, unit="percent")  # mean + shaded CI
+            # one table: rows = opponents, columns = the two metrics
+            run.define_metric("pool/anchor/rank", panel="pool", kind="table",
+                              row="anchor", series="avg rank")
+            run.define_metric("pool/anchor/games", panel="pool", kind="table",
+                              row="anchor", series="games")
+
+        A 30-chart dashboard needs a hierarchy, and the training code is what knows which
+        metric decides the experiment — so declare it here rather than in the dashboard.
+        `importance="primary"` pins the metric to a large row at the top of the page;
+        `"debug"` folds it into a collapsed section at the bottom; the default `"normal"`
+        renders as today.
+
+            run.define_metric("vs_baseline/avg_rank", importance="primary", goal="min")
+            run.define_metric("dropped_rows", importance="debug")
+
+        `alarm` marks a metric whose only value is the moment it goes wrong (an OOM
+        counter, an illegal-action count, a truncation rate that must stay zero). It
+        collapses to a badge instead of a forever-flat chart, and turns red and jumps to
+        the top of the page the moment the threshold is crossed: `{"ok": v}` for "must
+        equal", `{"max": v}` for a ceiling, `{"min": v}` for a floor. The client also
+        warns on stderr the first time each alarm trips, and POSTs the violation to
+        `PANDM_ALARM_WEBHOOK` when that's set — a 30-hour unattended run has nobody
+        watching the page.
+
+            run.define_metric("game/budget_exceeded_rate", alarm={"ok": 0})
+            run.define_metric("sys/oom_retries", alarm={"max": 0})
+
+        `axis="right"` gives a panel member its own right-hand y-axis, for two related
+        keys an order of magnitude apart (a loss and its gradient norm) where the smaller
+        would otherwise be a line flat against the axis. `scale="log"` renders this
+        metric's y-axis logarithmically — for loss curves whose first 10% of steps eat
+        90% of the linear range.
+
+            run.define_metric("train/loss", panel="train", scale="log")
+            run.define_metric("train/grad_norm", panel="train", axis="right")
 
         Name the axes with `x_label` / `y_label` (shown along each axis, e.g.
         y_label="Reward", x_label="Episode") — these apply to every chart type. For a
@@ -549,12 +684,34 @@ class Run:
         elif band:  # True -> pair with the _lo/_hi siblings; False/None -> no band
             spec["band"] = True
         if kind is not None:
-            if kind not in ("line", "bar", "scatter"):
+            if kind not in ("line", "bar", "scatter", "stat", "table"):
                 raise ValueError(
-                    f"kind must be 'line', 'bar', or 'scatter', got {kind!r}"
+                    "kind must be 'line', 'bar', 'scatter', 'stat', or 'table', "
+                    f"got {kind!r}"
                 )
             if kind != "line":  # the default is implicit — keep metric_meta minimal
                 spec["kind"] = kind
+        if importance is not None:
+            if importance not in ("primary", "normal", "debug"):
+                raise ValueError(
+                    f"importance must be 'primary', 'normal', or 'debug', got {importance!r}"
+                )
+            if importance != "normal":  # the default is implicit
+                spec["importance"] = importance
+        if alarm is not None:
+            spec["alarm"] = _coerce_alarm(alarm)
+        if axis is not None:
+            if axis not in ("left", "right"):
+                raise ValueError(f"axis must be 'left' or 'right', got {axis!r}")
+            if axis != "left":  # the default is implicit
+                spec["axis"] = axis
+        if scale is not None:
+            if scale not in ("linear", "log"):
+                raise ValueError(f"scale must be 'linear' or 'log', got {scale!r}")
+            if scale != "linear":  # the default is implicit
+                spec["scale"] = scale
+        if row is not None:
+            spec["row"] = str(row)
         if x_label is not None:
             spec["x_label"] = str(x_label)
         if y_label is not None:
@@ -565,6 +722,10 @@ class Run:
             spec["y_ticks"] = [str(t) for t in y_ticks]
         if not spec:
             return
+        if "alarm" in spec:
+            # remembered locally too, so log() can shout the moment it trips —
+            # nobody is watching the dashboard at hour 22 of an unattended run
+            self._alarms[str(key)] = spec["alarm"]
         try:
             self._backend.set_metric_meta(self.id, {str(key): spec})
         except Exception:  # noqa: BLE001 — display metadata is best-effort, never kill training

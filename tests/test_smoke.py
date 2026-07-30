@@ -596,12 +596,88 @@ def test_define_metric_panel_band_kind(data_dir):
     assert meta["final/seat0"] == {"panel": "seat_winrate", "kind": "bar"}
 
 
+def test_define_metric_hierarchy_and_render_hints(data_dir):
+    """importance / alarm / axis / scale / row ride along in metric_meta like the rest:
+    the backend never interprets them, the dashboard ranks and renders from them. Every
+    default stays implicit, so a run that declares nothing new is byte-identical."""
+    run = pandm.init(project="p", name="rank", directory=data_dir, remote=False)
+    run.define_metric("vs_baseline/rank", importance="primary", goal="min")
+    run.define_metric("dropped_rows", importance="debug")
+    run.define_metric("steps", importance="normal")  # the default -> not stored
+    run.define_metric("game/truncated", alarm={"ok": 0})
+    run.define_metric("sys/oom", alarm={"max": 0}, description="OOM 重试次数")
+    run.define_metric("data/coverage", alarm={"min": 0.9})
+    run.define_metric("train/loss", panel="optim", scale="log")
+    run.define_metric("train/grad_norm", panel="optim", axis="right")
+    run.define_metric("train/lr", scale="linear", axis="left")  # defaults -> not stored
+    run.define_metric("opt/lr", kind="stat")
+    run.define_metric("pool/0/rank", panel="pool", kind="table", row="anchor")
+    run.finish()
+
+    meta = _get_run(LocalStore(data_dir), run.id)["metric_meta"]
+    assert meta["vs_baseline/rank"] == {"goal": "min", "importance": "primary"}
+    assert meta["dropped_rows"] == {"importance": "debug"}
+    assert "steps" not in meta  # importance="normal" is the default, kept implicit
+    assert meta["game/truncated"] == {"alarm": {"ok": 0.0}}
+    assert meta["sys/oom"] == {"description": "OOM 重试次数", "alarm": {"max": 0.0}}
+    assert meta["data/coverage"] == {"alarm": {"min": 0.9}}
+    assert meta["train/loss"] == {"panel": "optim", "scale": "log"}
+    assert meta["train/grad_norm"] == {"panel": "optim", "axis": "right"}
+    assert "train/lr" not in meta  # scale="linear"/axis="left" are the defaults
+    assert meta["opt/lr"] == {"kind": "stat"}
+    assert meta["pool/0/rank"] == {"panel": "pool", "kind": "table", "row": "anchor"}
+    # declaration order is preserved, which is how the dashboard orders table columns
+    # and legend entries without anyone renaming a key
+    assert list(meta) == [
+        "vs_baseline/rank",
+        "dropped_rows",
+        "game/truncated",
+        "sys/oom",
+        "data/coverage",
+        "train/loss",
+        "train/grad_norm",
+        "opt/lr",
+        "pool/0/rank",
+    ]
+
+
+def test_alarm_warns_once_per_key(data_dir, capsys):
+    """An alarm's whole point is the unattended run: the first breach of each threshold
+    reports on stderr, and a rate that stays broken doesn't become a log flood."""
+    run = pandm.init(project="p", name="alarm", directory=data_dir, remote=False)
+    run.define_metric("game/truncated", alarm={"ok": 0})
+    run.define_metric("sys/oom", alarm={"max": 0})
+    run.log({"game/truncated": 0.0, "sys/oom": 0}, step=0)  # holding -> silent
+    capsys.readouterr()
+    run.log({"game/truncated": 0.031, "sys/oom": 0}, step=1)  # breach
+    run.log({"game/truncated": 0.044, "sys/oom": 0}, step=2)  # still broken
+    err = capsys.readouterr().err
+    run.finish()
+    assert err.count("ALARM game/truncated") == 1  # once per key, not once per step
+    assert "0.031" in err and "step 1" in err
+    assert "sys/oom" not in err  # its threshold held
+
+
 def test_define_metric_rejects_bad_args(data_dir):
     run = pandm.init(project="p", directory=data_dir, remote=False)
     with pytest.raises(ValueError):
         run.define_metric("x", band={"lo": "x_lo"})  # band dict needs both lo and hi
     with pytest.raises(ValueError):
-        run.define_metric("x", kind="heatmap")  # kind must be line/bar/scatter
+        run.define_metric(
+            "x", kind="heatmap"
+        )  # kind must be line/bar/scatter/stat/table
+    with pytest.raises(ValueError):
+        run.define_metric("x", importance="critical")  # primary/normal/debug only
+    with pytest.raises(ValueError):
+        run.define_metric(
+            "x", alarm={"maximum": 1}
+        )  # a typo'd bound must not be ignored
+    with pytest.raises(ValueError):
+        run.define_metric("x", alarm={})  # an empty alarm declares nothing
+    with pytest.raises(ValueError):
+        run.define_metric("x", axis="top")
+    with pytest.raises(ValueError):
+        run.define_metric("x", scale="sqrt")
     run.define_metric("x", kind="line")  # the default kind is implicit, not stored
     run.finish()
     meta = _get_run(LocalStore(data_dir), run.id)["metric_meta"]
