@@ -23,8 +23,7 @@ npx skills add Jannchie/pandm --list
 ```
 
 Handy flags: `-g` installs at the user level instead of the project,
-`-a claude-code` targets a single agent, `-y` skips the prompts (CI). Each skill
-folder is installed whole, so `pandm-inspect`'s bundled `scripts/` come along.
+`-a claude-code` targets a single agent, `-y` skips the prompts (CI).
 
 Prefer to do it by hand? The skills use the standard Agent Skills layout, so just
 copy a folder into your skills directory:

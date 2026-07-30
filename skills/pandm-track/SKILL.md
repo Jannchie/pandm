@@ -306,6 +306,12 @@ pandm: run "baseline" [a1b2c3d4] -> https://pandm.jannchie.com/?project=mnist&ru
   Pass it and keep it monotonic per key — the dashboard plots against it.
 - **Group keys with `/`.** `train/loss`, `val/loss`, `lr` — the dashboard groups by the
   prefix before the slash.
+- **Resuming a training? reuse the `group=`.** A run split across restarts (preemption,
+  a second stage, a manual resume) is *one* experiment. Give every segment the same
+  `group=` and keep `step` continuing where the previous segment stopped — the
+  dashboard's *▤ stitch* toggle then reads the segments back to back as a single
+  continuous curve. A fresh group per restart, or steps that restart at 0, leaves you
+  with N unrelated runs overlapping each other.
 - **NaN / Inf are dropped silently.** Guard values you actually need; a sometimes-nonfinite
   metric gets gaps, not errors.
 - **Images** accept a PIL `Image`, a numpy/torch array (HWC *or* CHW is detected; float
