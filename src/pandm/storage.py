@@ -33,8 +33,11 @@ CREATE TABLE IF NOT EXISTS runs (
     -- metric row of the chosen checkpoint, which per-key stats can't reconstruct
     summary        TEXT NOT NULL DEFAULT '{}',
     -- per-metric display specs (run.define_metric(...)): {key: {min,max,unit,goal,
-    -- baseline}} — tells the dashboard how to render a metric (fixed axis, percent,
-    -- baseline line, which direction is "better"). Author-declared, never inferred.
+    -- baseline,importance,alarm,panel,kind,…}} — tells the dashboard how to render a
+    -- metric (fixed axis, percent, baseline line, which direction is "better") and how
+    -- much it matters (which keys decide the experiment, which invariants must hold).
+    -- Free-form and merged per key, so a new spec field needs no migration.
+    -- Author-declared, never inferred; insertion order = define_metric call order.
     metric_meta    TEXT NOT NULL DEFAULT '{}',
     created_at     REAL NOT NULL,
     updated_at     REAL NOT NULL,
