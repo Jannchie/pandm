@@ -72,21 +72,45 @@ function startResize(e: PointerEvent) {
 // Drag across empty space to mark a range of runs; the mark is a transient
 // bulk-action set (state.marked), kept separate from the compare selection.
 const listRef = ref<HTMLElement | null>(null)
-const marquee = ref<{ x0: number; y0: number; x1: number; y1: number } | null>(
-  null,
-)
+// y coordinates live in the list's *content* space (clientY - box.top +
+// scrollTop) so the anchor sticks to the rows it was dropped on: scrolling
+// stretches the band instead of sliding it off the rows already caught.
+const marquee = ref<{
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+} | null>(null)
+const listScrollTop = ref(0)
+
+// content-space band; unclamped, so rows scrolled out of view still count
+const marqueeBand = computed(() => {
+  const m = marquee.value
+  if (!m) return null
+  return { top: Math.min(m.y0, m.y1), bottom: Math.max(m.y0, m.y1) }
+})
 
 // screen-space rectangle for the overlay, clamped to the list's visible box
 const marqueeRect = computed(() => {
   const m = marquee.value
-  if (!m || !listRef.value) return null
+  const band = marqueeBand.value
+  if (!m || !band || !listRef.value) return null
   const box = listRef.value.getBoundingClientRect()
+  const originY = box.top - listScrollTop.value
   const left = Math.max(box.left, Math.min(m.x0, m.x1))
   const right = Math.min(box.right, Math.max(m.x0, m.x1))
-  const top = Math.max(box.top, Math.min(m.y0, m.y1))
-  const bottom = Math.min(box.bottom, Math.max(m.y0, m.y1))
+  const top = Math.max(box.top, originY + band.top)
+  const bottom = Math.min(box.bottom, originY + band.bottom)
+  if (right <= left || bottom <= top) return null
   return { left, top, width: right - left, height: bottom - top }
 })
+
+// clientY → content-space y within the list
+function contentY(clientY: number): number {
+  const el = listRef.value
+  if (!el) return clientY
+  return clientY - el.getBoundingClientRect().top + el.scrollTop
+}
 
 const DRAG_THRESHOLD = 5 // px before a press becomes a marquee (vs a click)
 let pressStart: { x: number; y: number; shift: boolean } | null = null
@@ -97,14 +121,16 @@ let didMarquee = false // set on a completed drag, to swallow the trailing click
 
 function idsInMarquee(): string[] {
   const el = listRef.value
-  const r = marqueeRect.value
-  if (!el || !r) return []
-  const rTop = r.top
-  const rBottom = r.top + r.height
+  const band = marqueeBand.value
+  if (!el || !band) return []
+  const boxTop = el.getBoundingClientRect().top
+  const st = el.scrollTop
   const hits: string[] = []
   for (const row of el.querySelectorAll<HTMLElement>('[data-run-id]')) {
     const b = row.getBoundingClientRect()
-    if (b.bottom >= rTop && b.top <= rBottom) hits.push(row.dataset.runId!)
+    const top = b.top - boxTop + st
+    if (top + b.height >= band.top && top <= band.bottom)
+      hits.push(row.dataset.runId!)
   }
   return hits
 }
@@ -123,6 +149,7 @@ function onListPointerDown(e: PointerEvent) {
   if ((e.target as HTMLElement).closest('[data-nomarquee]')) return
   pressStart = { x: e.clientX, y: e.clientY, shift: e.shiftKey }
   lastPointerY = e.clientY
+  listScrollTop.value = listRef.value?.scrollTop ?? 0
   window.addEventListener('pointermove', onWinPointerMove)
   window.addEventListener('pointerup', onWinPointerUp)
 }
@@ -136,18 +163,30 @@ function onWinPointerMove(e: PointerEvent) {
     marqueeBase = pressStart.shift ? [...state.marked] : []
     marquee.value = {
       x0: pressStart.x,
-      y0: pressStart.y,
+      y0: contentY(pressStart.y),
       x1: e.clientX,
-      y1: e.clientY,
+      y1: contentY(e.clientY),
     }
     document.body.style.userSelect = 'none'
     startAutoScroll()
   }
   if (marquee.value) {
     marquee.value.x1 = e.clientX
-    marquee.value.y1 = e.clientY
+    marquee.value.y1 = contentY(e.clientY)
+    listScrollTop.value = listRef.value?.scrollTop ?? 0
     applyMarquee()
   }
+}
+
+// wheel/trackpad scrolling mid-drag moves the content under a still cursor:
+// re-anchor the loose end to where the pointer now points and re-run the hits
+function onListScroll() {
+  const el = listRef.value
+  if (!el) return
+  listScrollTop.value = el.scrollTop
+  if (!marquee.value) return
+  marquee.value.y1 = contentY(lastPointerY)
+  applyMarquee()
 }
 
 function onWinPointerUp() {
@@ -185,7 +224,7 @@ function startAutoScroll() {
       dy = lastPointerY - (box.bottom - edge)
     if (dy !== 0) {
       el.scrollTop += Math.max(-24, Math.min(24, dy * 0.5))
-      applyMarquee()
+      onListScroll()
     }
   }, 16)
 }
@@ -318,6 +357,7 @@ onUnmounted(() => {
       class="relative flex-1 min-h-0 overflow-y-auto"
       @pointerdown="onListPointerDown"
       @click.capture="onListClickCapture"
+      @scroll="onListScroll"
     >
       <div
         v-for="{ run, eta } in rows"
