@@ -11,6 +11,9 @@ import {
   TooltipComponent,
 } from 'echarts/components'
 import * as echarts from 'echarts/core'
+// echarts 6 made grid.containLabel opt-in; without this the axis labels get
+// clipped instead of the grid shrinking to fit them.
+import { LegacyGridContainLabel } from 'echarts/features'
 import { CanvasRenderer } from 'echarts/renderers'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { runColor, seriesColor } from '../colors'
@@ -36,6 +39,7 @@ echarts.use([
   TooltipComponent,
   ToolboxComponent,
   DataZoomComponent,
+  LegacyGridContainLabel,
   CanvasRenderer,
 ])
 

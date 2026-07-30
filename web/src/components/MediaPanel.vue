@@ -36,7 +36,8 @@ state.mediaIdx = Math.max(0, steps.value.length - 1)
 watch(
   () => steps.value.length,
   (len, oldLen) => {
-    if (state.mediaIdx >= (oldLen ?? 0) - 1) state.mediaIdx = Math.max(0, len - 1)
+    if (state.mediaIdx >= (oldLen ?? 0) - 1)
+      state.mediaIdx = Math.max(0, len - 1)
     state.mediaIdx = Math.min(state.mediaIdx, Math.max(0, len - 1))
   },
 )
@@ -88,8 +89,15 @@ function open(run: Run, item: MediaItem) {
     .sort((a, b) => a.step - b.step)
   state.lightbox = {
     title: `${run.name} · ${item.key}`,
-    items: series.map((m) => ({ url: m.url, step: m.step, caption: m.caption })),
-    idx: Math.max(0, series.findIndex((m) => m.filename === item.filename)),
+    items: series.map((m) => ({
+      url: m.url,
+      step: m.step,
+      caption: m.caption,
+    })),
+    idx: Math.max(
+      0,
+      series.findIndex((m) => m.filename === item.filename),
+    ),
   }
 }
 </script>

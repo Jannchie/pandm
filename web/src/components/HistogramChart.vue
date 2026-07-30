@@ -7,6 +7,8 @@ import {
   VisualMapComponent,
 } from 'echarts/components'
 import * as echarts from 'echarts/core'
+// echarts 6 made grid.containLabel opt-in (see MetricChart.vue)
+import { LegacyGridContainLabel } from 'echarts/features'
 import { CanvasRenderer } from 'echarts/renderers'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CHART_FONT, CHART_INK, fmtNum, fmtStep } from '../fmt'
@@ -17,6 +19,7 @@ echarts.use([
   GridComponent,
   TooltipComponent,
   VisualMapComponent,
+  LegacyGridContainLabel,
   CanvasRenderer,
 ])
 
