@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Run } from '../api'
+import { runDuration } from '../api'
 import { runColor } from '../colors'
 import { fmtClock, fmtDuration, fmtNum } from '../fmt'
 import { selectedRuns } from '../store'
@@ -26,8 +27,7 @@ function cfg(run: Run, key: string): string {
 }
 
 function duration(run: Run): string {
-  const end = run.finished_at ?? run.updated_at
-  return fmtDuration(end - run.created_at)
+  return fmtDuration(runDuration(run))
 }
 
 const statusColor: Record<string, string> = {

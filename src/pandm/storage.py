@@ -39,6 +39,14 @@ CREATE TABLE IF NOT EXISTS runs (
     created_at     REAL NOT NULL,
     updated_at     REAL NOT NULL,
     finished_at    REAL,
+    -- resume-aware wall-clock time. A run is a sequence of launch *segments*;
+    -- active_seconds sums the duration of every segment before the current one,
+    -- and segment_started_at marks where the current segment began (= created_at
+    -- on create, reset to the resume time on each reopen). Total training time =
+    -- active_seconds + (COALESCE(finished_at, updated_at) - segment_started_at),
+    -- so the idle gap between a finish/crash and the next resume is never counted.
+    active_seconds     REAL NOT NULL DEFAULT 0,
+    segment_started_at REAL,
     user_id        INTEGER,
     -- training progress for ETA: current step out of total (either may be NULL)
     progress       REAL,
@@ -167,6 +175,8 @@ def _run_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "finished_at": row["finished_at"],
+        "active_seconds": row["active_seconds"],
+        "segment_started_at": row["segment_started_at"],
         "user_id": row["user_id"],
         "progress": row["progress"],
         "progress_total": row["progress_total"],
@@ -223,6 +233,14 @@ class LocalStore:
             )
         if "group_name" not in cols:
             self._db.execute("ALTER TABLE runs ADD COLUMN group_name TEXT")
+        if "active_seconds" not in cols:
+            self._db.execute(
+                "ALTER TABLE runs ADD COLUMN active_seconds REAL NOT NULL DEFAULT 0"
+            )
+        if "segment_started_at" not in cols:
+            # legacy rows leave this NULL; readers fall back to created_at, so their
+            # duration stays exactly (COALESCE(finished_at, updated_at) - created_at)
+            self._db.execute("ALTER TABLE runs ADD COLUMN segment_started_at REAL")
         self._db.execute("CREATE INDEX IF NOT EXISTS idx_runs_user ON runs (user_id)")
         # histogram sync cursors — the histograms table itself is (re)created by the
         # schema script above; only the older sync tables need the new columns.
@@ -265,14 +283,15 @@ class LocalStore:
         with self._lock:
             self._db.execute(
                 "INSERT OR IGNORE INTO runs"
-                " (id, project, name, description, status, config, created_at, updated_at, user_id, tags, group_name)"
-                " VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?)",
+                " (id, project, name, description, status, config, created_at, updated_at, segment_started_at, user_id, tags, group_name)"
+                " VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     project,
                     name,
                     description or "",
                     json.dumps(config, default=str),
+                    now,
                     now,
                     now,
                     user_id,
@@ -486,9 +505,17 @@ class LocalStore:
         run has no metrics yet (the caller logs at the returned value + 1)."""
         ts = ts if ts is not None else time.time()
         with self._lock:
+            # Close the segment we're reopening: fold its wall-clock span into
+            # active_seconds before pointing segment_started_at at the new launch,
+            # so the idle gap from the last finish/heartbeat to now is not counted.
+            # MAX(...,0) guards against clock skew making the span negative.
             self._db.execute(
-                "UPDATE runs SET status = 'running', finished_at = NULL, updated_at = ? WHERE id = ?",
-                (ts, run_id),
+                "UPDATE runs SET status = 'running', finished_at = NULL, updated_at = ?,"
+                " active_seconds = active_seconds + MAX("
+                "     COALESCE(finished_at, updated_at) - COALESCE(segment_started_at, created_at), 0),"
+                " segment_started_at = ?"
+                " WHERE id = ?",
+                (ts, ts, run_id),
             )
             row = self._db.execute(
                 "SELECT MAX(step) AS m FROM metrics WHERE run_id = ?", (run_id,)

@@ -297,6 +297,40 @@ export class RunStore extends DurableObject<Env> {
       .run()
   }
 
+  /** Reopen a finished/crashed run for more logging. Folds the closing segment's
+   * wall-clock span into active_seconds and points segment_started_at at this
+   * launch, so the idle gap since the last finish/heartbeat is never billed (the
+   * accumulation runs in SQL against the D1 row, whose COALESCE(segment_started_at,
+   * created_at) handles legacy rows and MAX(...,0) guards clock skew). Returns the
+   * step to continue from — the current MAX(step), or -1 when the run has none. */
+  async resume(runId: string): Promise<number> {
+    this.state.runId = runId
+    const ts = now()
+    await this.env.DB.prepare(
+      `UPDATE runs SET status = 'running', finished_at = NULL, updated_at = ?1, data_rev = ?1,
+         active_seconds = active_seconds + MAX(
+           COALESCE(finished_at, updated_at) - COALESCE(segment_started_at, created_at), 0),
+         segment_started_at = ?1
+       WHERE id = ?2`,
+    )
+      .bind(ts, runId)
+      .run()
+    // Keep the DO's in-memory state consistent so a later finish() can't reinstate
+    // the old terminal status/finished_at over the reopened row.
+    this.state.status = 'running'
+    this.state.finishedAt = null
+    this.touch(ts)
+    this.persistState()
+    // Continue-from step: DO-served runs keep it in segments; a legacy run (empty
+    // segments here) still has its series in the D1 metrics table.
+    const seg = this.sql.exec<{ m: number | null }>("SELECT MAX(end_step) AS m FROM segments WHERE kind = 'm'").toArray()[0]
+    if (seg && seg.m !== null) return seg.m
+    const row = await this.env.DB.prepare('SELECT MAX(step) AS m FROM metrics WHERE run_id = ?1')
+      .bind(runId)
+      .first<{ m: number | null }>()
+    return row && row.m !== null ? row.m : -1
+  }
+
   // ----------------------------------------------------------------- reads
 
   metricKeys(): Array<{ key: string; points: number; last_step: number }> {

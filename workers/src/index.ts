@@ -309,6 +309,14 @@ app.post('/api/runs/:id/finish', async (c) => {
   return c.json({ status })
 })
 
+app.post('/api/runs/:id/resume', async (c) => {
+  const runId = c.req.param('id')
+  const guard = await ownerGuard(c, runId)
+  if (guard) return guard
+  const maxStep = await store(c.env, runId).resume(runId)
+  return c.json({ max_step: maxStep })
+})
+
 app.delete('/api/runs/:id', async (c) => {
   const runId = c.req.param('id')
   const guard = await ownerGuard(c, runId)

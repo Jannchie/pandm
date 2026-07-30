@@ -362,6 +362,31 @@ describe('run lifecycle', () => {
     expect(run.finished_at).toBe(2000.0)
   })
 
+  it('resume reopens the run, returns the continue step, and excludes the idle gap from duration', async () => {
+    // segment 1: created at 1000, three metric steps, finished at 1100 (100s of work)
+    await post('/api/runs', { id: 'res00001', project: 'p', name: 'r', created_at: 1000.0 }, keyOf(alice))
+    await post(
+      '/api/runs/res00001/metrics',
+      { rows: [0, 1, 2].map((i) => ({ key: 'loss', step: i, value: i, ts: 1000 + i, seq: i + 1 })) },
+      keyOf(alice),
+    )
+    await post('/api/runs/res00001/finish', { status: 'finished', finished_at: 1100.0 }, keyOf(alice))
+
+    // reopen: continue from the last step, status back to running, segment 1 folded in
+    const resumed = (await (await post('/api/runs/res00001/resume', {}, keyOf(alice))).json()) as any
+    expect(resumed.max_step).toBe(2)
+    let run = (await (await api('/api/runs/res00001', { headers: keyOf(alice) })).json()) as any
+    expect(run.status).toBe('running')
+    expect(run.finished_at).toBeNull()
+    expect(run.active_seconds).toBe(100) // 1100 - 1000, the closed segment
+    expect(run.segment_started_at).toBeGreaterThan(1100) // this launch, not the original start
+
+    // finishing again keeps active_seconds; the long idle gap is never billed
+    await post('/api/runs/res00001/finish', { status: 'finished' }, keyOf(alice))
+    run = (await (await api('/api/runs/res00001', { headers: keyOf(alice) })).json()) as any
+    expect(run.active_seconds).toBe(100)
+  })
+
   it('attaches per-metric display specs (define_metric) on finish', async () => {
     await post('/api/runs', { id: 'meta0001', project: 'p', name: 'm' }, keyOf(alice))
     // default before any define_metric

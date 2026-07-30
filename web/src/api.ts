@@ -16,12 +16,27 @@ export interface Run {
   created_at: number
   updated_at: number
   finished_at: number | null
+  // resume-aware training time: sum of prior launch segments, plus the current
+  // segment measured from segment_started_at (see runDuration in fmt.ts).
+  active_seconds: number
+  segment_started_at: number | null // null on legacy runs -> falls back to created_at
   progress: number | null // current step/epoch/sample, for ETA
   progress_total: number | null // target; null = unknown, no ETA
   progress_ts: number | null // when progress was last reported
   summary: Record<string, number> // author-written run-level scalars (run.summary({...}))
   stats: Record<string, MetricStats> // per-key aggregates; .last is the latest logged value
   metric_meta: Record<string, MetricSpec> // author-declared per-metric display specs (run.define_metric)
+}
+
+/** Wall-clock training time in seconds, resume-aware: prior launch segments
+ *  (active_seconds) plus the current one, measured from segment_started_at up to
+ *  finish (or, while still running/crashed, the last heartbeat). The idle gap
+ *  between a finish/crash and the next resume is excluded. Legacy runs have
+ *  active_seconds=0 and a null segment_started_at, collapsing to end - created_at. */
+export function runDuration(run: Run): number {
+  const segStart = run.segment_started_at ?? run.created_at
+  const end = run.finished_at ?? run.updated_at
+  return run.active_seconds + Math.max(0, end - segStart)
 }
 
 export interface MetricStats {

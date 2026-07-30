@@ -417,6 +417,47 @@ def test_resume_continues_run(data_dir):
     assert run["config"] == {"lr": 0.1}  # resume keeps the original config
 
 
+def _duration(run: dict) -> float:
+    """Mirror the dashboard's runDuration(): prior segments plus the current one,
+    the idle gap between finish/crash and the next resume excluded."""
+    seg_start = run["segment_started_at"] or run["created_at"]
+    end = run["finished_at"] or run["updated_at"]
+    return run["active_seconds"] + max(0.0, end - seg_start)
+
+
+def test_resume_duration_excludes_idle_gap(data_dir):
+    store = LocalStore(data_dir)
+    # segment 1: 100s of real work, then a crash at t=1100
+    store.create_run("r", "p", "n", {}, created_at=1000.0)
+    store.finish_run("r", "crashed", finished_at=1100.0)
+    assert _duration(_get_run(store, "r")) == 100.0
+
+    # reopened 4000s later — the gap must not be billed
+    store.resume_run("r", ts=5000.0)
+    reopened = _get_run(store, "r")
+    assert reopened["active_seconds"] == 100.0  # segment 1 folded in
+    assert reopened["segment_started_at"] == 5000.0
+    assert _duration(reopened) == 100.0  # nothing new yet (updated_at == seg start)
+
+    # segment 2: another 100s of work
+    store.heartbeat("r", ts=5100.0)
+    store.finish_run("r", "finished", finished_at=5100.0)
+    assert _duration(_get_run(store, "r")) == 200.0  # 100 + 100, gap excluded
+
+
+def test_legacy_run_duration_falls_back_to_created_at(data_dir):
+    # a row predating the resume columns: segment_started_at NULL, active_seconds 0
+    store = LocalStore(data_dir)
+    store.create_run("legacy", "p", "n", {}, created_at=2000.0)
+    store._db.execute(
+        "UPDATE runs SET segment_started_at = NULL, active_seconds = 0 WHERE id = 'legacy'"
+    )
+    store.finish_run("legacy", "finished", finished_at=2150.0)
+    run = _get_run(store, "legacy")
+    assert run["segment_started_at"] is None
+    assert _duration(run) == 150.0  # collapses to finished_at - created_at
+
+
 def test_resume_guards(data_dir):
     pandm.init(project="p", id="dup-1", directory=data_dir, remote=False).finish()
     # reusing an id without resume is refused (would silently append otherwise)
