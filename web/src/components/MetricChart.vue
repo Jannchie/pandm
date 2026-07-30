@@ -318,6 +318,26 @@ async function update() {
       : undefined
   let markLinePlaced = false
 
+  // Zoomed-in y-rescale: while an x-window is active, fit the y-axis to the data
+  // *inside* that window instead of the whole series, so a magnified span fills the
+  // panel. Log mode keeps its own auto range; a define_metric-pinned end is left
+  // untouched below. We fold the same values we draw (smoothed line + band bounds),
+  // skipping points outside the window — no interpolation, so a window with no
+  // vertex inside falls back to the full-data fit.
+  const win = state.xRange
+  const autoRange = !!win && !state.logScale
+  let yLo = Infinity
+  let yHi = -Infinity
+  const foldWindow = (xa: number[], ya: number[]) => {
+    for (let j = 0; j < xa.length; j++) {
+      const x = xa[j]
+      const y = ya[j]
+      if (x < win![0] || x > win![1] || !Number.isFinite(y)) continue
+      if (y < yLo) yLo = y
+      if (y > yHi) yHi = y
+    }
+  }
+
   const series: object[] = []
   const legendNames: string[] = []
   for (const { c, mean, lo, hi } of fetched) {
@@ -342,6 +362,10 @@ async function update() {
         lo.values[j],
         hi.values[j],
       ])
+      if (autoRange) {
+        foldWindow(bx, lo.values)
+        foldWindow(bx, hi.values)
+      }
       series.push({
         name: `__band__${name}`,
         type: 'custom',
@@ -393,6 +417,7 @@ async function update() {
       })
       ys = ema(ys, state.smoothing)
     }
+    if (autoRange) foldWindow(xs, ys)
     legendNames.push(name)
     series.push({
       name,
@@ -410,6 +435,22 @@ async function update() {
         : {}),
     })
   }
+
+  // padded window fit: a 5% margin keeps the extreme points off the frame edge;
+  // a flat line (span 0) pads by its magnitude so it doesn't collapse to a sliver.
+  const winFit =
+    autoRange && yLo <= yHi
+      ? (() => {
+          const span = yHi - yLo
+          const pad = span > 0 ? span * 0.05 : Math.abs(yHi) * 0.05 || 1
+          return { min: yLo - pad, max: yHi + pad }
+        })()
+      : null
+  // a define_metric-declared bound sets the axis *default*, but an active zoom
+  // window overrides it — so you can still magnify inside a pinned range and read
+  // the detail. Unzoomed, the declared bound (or full-data auto) stands.
+  const pinMin = fixed && spec?.min !== undefined
+  const pinMax = fixed && spec?.max !== undefined
 
   applyOption({
     animationDuration: 200,
@@ -496,8 +537,10 @@ async function update() {
       ...axisName(spec?.y_label, 'y'),
       type: state.logScale ? 'log' : 'value',
       scale: !fixed, // a declared range pins the axis; otherwise fit the data
-      min: fixed && spec.min !== undefined ? spec.min : undefined,
-      max: fixed && spec.max !== undefined ? spec.max : undefined,
+      // zoom window fit wins (override even a declared bound); else the declared
+      // pin; else full-data auto.
+      min: winFit ? winFit.min : pinMin ? spec!.min : undefined,
+      max: winFit ? winFit.max : pinMax ? spec!.max : undefined,
       axisLabel: {
         color: CHART_INK.dim,
         fontSize: 12,
