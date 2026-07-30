@@ -148,10 +148,10 @@ run's, in one call) and use them to pick which rows of the comparison matter.
   the two kinds of `crashed`:** set = the run reported its own death (an uncaught
   exception, an explicit `finish("crashed")`); null = nobody reported anything and
   the status is a read-time inference — `kill -9`, the OOM killer, an evicted pod.
-  The dashboard shows that second case as **stale**, not crashed. Say which you mean:
-  "crashed" reads as a bug in the training code, while a stale run usually means the
-  machine died and the code is fine. `pandm finish --stale` turns the inference into
-  a stored verdict.
+  The dashboard renders both as crashed, so this field is the only way to tell them
+  apart. Say which you mean: "crashed" reads as a bug in the training code, while an
+  inferred one usually means the machine died and the code is fine. `pandm finish
+  --stale` turns the inference into a stored verdict.
 - **`progress` / `progress_total`** drive the dashboard ETA; either may be null.
 - **`tags`** is a list of free-form labels and **`group`** buckets related runs
   (a sweep, a multi-process job); both may be empty.

@@ -50,7 +50,7 @@ run.define_metric("pool/0/rank", panel="pool", kind="table", row="anchor", serie
 
 ## Usage
 
-`step` is optional (an internal counter is used). Runs end as `finished` or `crashed`: uncaught exceptions are detected via `sys.excepthook` (and the context manager), and hard-killed processes (`kill -9`, OOM) are presumed crashed once their 15s heartbeat goes quiet for 60s — self-healing if the process was merely suspended. Because that verdict is an inference and not a witnessed crash, the dashboard shows it as its own **stale** state (a grey `?`) rather than asserting the trainer raised; `pandm finish --stale` writes it down for good.
+`step` is optional (an internal counter is used). Runs end as `finished` or `crashed`: uncaught exceptions are detected via `sys.excepthook` (and the context manager), and hard-killed processes (`kill -9`, OOM) are presumed crashed once their 15s heartbeat goes quiet for 60s — self-healing if the process was merely suspended. That verdict is an inference, so it isn't written down: `finished_at` stays null until `pandm finish --stale` records it for good.
 
 ```python
 with pandm.init(project="mnist") as run:

@@ -320,10 +320,10 @@ pandm: run "baseline" [a1b2c3d4] -> https://pandm.jannchie.com/?project=mnist&ru
 - **Run status** is `running` → `finished` or `crashed`. Uncaught exceptions (via
   `sys.excepthook`) reach `crashed`; reach `finish()` / exit the `with` block for
   `finished`. A **hard kill** (`kill -9`, the OOM killer, an evicted pod) runs no exit
-  handler at all, so the stored status stays `running` forever — the dashboard infers
-  that case instead, showing a run whose 15 s heartbeat has been quiet for two minutes
-  as **stale** (a grey `?`, not a green pulse). Don't write "check max(step) to see if
-  it's alive" in your docs; read the run's state.
+  handler at all, so the stored status stays `running` forever — the server infers
+  that case instead, reporting a run whose 15 s heartbeat has gone quiet for 60 s as
+  `crashed`. Don't write "check max(step) to see if it's alive" in your docs; read the
+  run's state.
 - **ETA:** pass `total_steps=` and progress follows your `log(step=...)` automatically;
   for other units call `run.set_progress(current, total)`.
 
