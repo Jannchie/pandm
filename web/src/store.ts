@@ -381,10 +381,6 @@ export const anyRunning = computed(() =>
   selectedRuns.value.some((r) => r.status === 'running'),
 )
 
-// a run the store only *presumes* crashed (heartbeat expired, no finished_at): shown
-// as its own state instead of asserting a crash nobody witnessed — see api.runStale
-export const anyStale = computed(() => state.runs.some((r) => api.runStale(r)))
-
 // plain click = single-select (show only this run); ctrl/cmd-click = toggle into
 // the current selection for side-by-side comparison
 export function selectRun(id: string, additive: boolean) {

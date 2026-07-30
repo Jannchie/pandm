@@ -54,29 +54,6 @@ export interface AlarmSpec {
   min?: number
 }
 
-/** A run whose process went quiet without anyone writing down how it ended: it was
- *  OOM-killed, pod-evicted or `kill -9`'d, so no exit handler ran. The store already
- *  presumes such a run crashed once its 15 s heartbeat has been silent for a minute —
- *  but that verdict is an *inference*, and reporting it as plain `crashed` claims more
- *  than is known: nothing distinguished "the trainer raised and said so" from "the
- *  process vanished and we guessed".
- *
- *  The two are exactly separable, by the same rule `pandm finish --stale` uses: a real
- *  crash (excepthook, `run.finish("crashed")`, `pandm finish`) writes `finished_at`;
- *  an inferred one never does. So this needs no clock, no threshold of its own, and no
- *  protocol change — and it self-heals if the process turns out to be alive and
- *  heartbeats again. */
-export function runStale(run: Run): boolean {
-  return run.status === 'crashed' && run.finished_at === null
-}
-
-/** running / stale / finished / crashed — the state to *show*, not the stored one. */
-export function runState(
-  run: Run,
-): 'running' | 'stale' | 'finished' | 'crashed' {
-  return runStale(run) ? 'stale' : run.status
-}
-
 /** How the dashboard should render a metric — declared via run.define_metric. */
 export interface MetricSpec {
   min?: number // fixed y-axis lower bound
