@@ -44,6 +44,7 @@ class RunIn(BaseModel):
     tags: list[str] = Field(default_factory=list)  # free-form labels for filtering
     group: str | None = None  # buckets related runs (a sweep, a multi-process job)
     config: dict[str, Any] = Field(default_factory=dict)
+    system: dict[str, Any] = Field(default_factory=dict)  # machine snapshot at init
     created_at: float | None = None
 
 
@@ -251,6 +252,7 @@ def create_app(
             description=body.description,
             tags=body.tags,
             group=body.group,
+            system=body.system,
         )
         return {"id": run_id}
 

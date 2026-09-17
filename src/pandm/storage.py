@@ -59,7 +59,12 @@ CREATE TABLE IF NOT EXISTS runs (
     -- of labels for filtering; group_name buckets related runs (a sweep, a
     -- multi-process job). `group` is a SQL keyword, hence the column name.
     tags           TEXT NOT NULL DEFAULT '[]',
-    group_name     TEXT
+    group_name     TEXT,
+    -- machine snapshot taken at init, separate from config so it never pollutes a
+    -- hyperparameter diff: {hostname, gpu_count, gpu_names, world_size, rank, ...}.
+    -- gpu_count is what this process could see; world_size (torchrun/SLURM) is the
+    -- cluster-wide GPU count the dashboard bills against.
+    system         TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE IF NOT EXISTS metrics (
     run_id TEXT NOT NULL,
@@ -171,6 +176,7 @@ def _run_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "description": row["description"],
         "tags": json.loads(row["tags"]),
         "group": row["group_name"],
+        "system": json.loads(row["system"]),
         "status": row["status"],
         "config": json.loads(row["config"]),
         "summary": json.loads(row["summary"]),
@@ -236,6 +242,10 @@ class LocalStore:
             )
         if "group_name" not in cols:
             self._db.execute("ALTER TABLE runs ADD COLUMN group_name TEXT")
+        if "system" not in cols:
+            self._db.execute(
+                "ALTER TABLE runs ADD COLUMN system TEXT NOT NULL DEFAULT '{}'"
+            )
         if "active_seconds" not in cols:
             self._db.execute(
                 "ALTER TABLE runs ADD COLUMN active_seconds REAL NOT NULL DEFAULT 0"
@@ -281,13 +291,14 @@ class LocalStore:
         description: str | None = None,
         tags: list[str] | None = None,
         group: str | None = None,
+        system: dict[str, Any] | None = None,
     ) -> None:
         now = created_at if created_at is not None else time.time()
         with self._lock:
             self._db.execute(
                 "INSERT OR IGNORE INTO runs"
-                " (id, project, name, description, status, config, created_at, updated_at, segment_started_at, user_id, tags, group_name)"
-                " VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?)",
+                " (id, project, name, description, status, config, created_at, updated_at, segment_started_at, user_id, tags, group_name, system)"
+                " VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     project,
@@ -300,6 +311,7 @@ class LocalStore:
                     user_id,
                     json.dumps(_norm_tags(tags)),
                     group or None,
+                    json.dumps(system or {}, default=str),
                 ),
             )
             self._db.commit()

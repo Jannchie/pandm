@@ -11,6 +11,16 @@ export interface Run {
   description: string // one-line human note (init(description=...))
   tags: string[] // free-form labels for filtering (init(tags=...))
   group: string | null // buckets related runs (init(group=...))
+  // machine snapshot taken at init (see sdk._system_info): gpu_count is what the
+  // process could see, world_size the cluster-wide process count under torchrun/SLURM
+  system: {
+    hostname?: string
+    gpu_count?: number
+    gpu_names?: string[]
+    world_size?: number
+    rank?: number
+    nodes?: number
+  }
   status: 'running' | 'finished' | 'crashed'
   config: Record<string, unknown>
   created_at: number
@@ -32,10 +42,16 @@ export interface Run {
  *  (active_seconds) plus the current one, measured from segment_started_at up to
  *  finish (or, while still running/crashed, the last heartbeat). The idle gap
  *  between a finish/crash and the next resume is excluded. Legacy runs have
- *  active_seconds=0 and a null segment_started_at, collapsing to end - created_at. */
-export function runDuration(run: Run): number {
+ *  active_seconds=0 and a null segment_started_at, collapsing to end - created_at.
+ *  Pass `now` (the shared clock) to keep a running run's duration ticking between
+ *  polls instead of freezing at its last heartbeat. */
+export function runDuration(run: Run, now?: number): number {
   const segStart = run.segment_started_at ?? run.created_at
-  const end = run.finished_at ?? run.updated_at
+  const end =
+    run.finished_at ??
+    (run.status === 'running' && now != null
+      ? Math.max(run.updated_at, now)
+      : run.updated_at)
   return run.active_seconds + Math.max(0, end - segStart)
 }
 

@@ -923,3 +923,23 @@ def test_meta_endpoint_merges_live(data_dir):
         "win_rate",
         "loss",
     }
+
+
+def test_system_snapshot_stored_beside_run(tmp_path, monkeypatch):
+    """init() records the machine snapshot (cluster size from torchrun/SLURM env)
+    in its own column, not in config, and the API serves it back."""
+    monkeypatch.setenv("WORLD_SIZE", "16")
+    monkeypatch.setenv("RANK", "3")
+    monkeypatch.setenv("SLURM_JOB_ID", "77")
+    monkeypatch.setenv("SLURM_JOB_NUM_NODES", "2")
+    run = pandm.init("p", name="n", config={"lr": 1}, directory=tmp_path, remote=False)
+    run.finish()
+    store = LocalStore(tmp_path)
+    got = store.get_run(run.id)
+    assert got["config"] == {"lr": 1}
+    assert got["system"]["world_size"] == 16
+    assert got["system"]["rank"] == 3
+    assert got["system"]["nodes"] == 2
+    assert got["system"]["hostname"]
+    client = TestClient(create_app(tmp_path))
+    assert client.get(f"/api/runs/{run.id}").json()["system"]["world_size"] == 16

@@ -819,6 +819,7 @@ def pull(
                 description=run["description"],
                 tags=run["tags"],
                 group=run["group"],
+                system=run.get("system"),
             )
             for meta in fetch(f"/api/runs/{rid}/metrics").json():
                 key = meta["key"]

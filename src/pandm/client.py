@@ -147,6 +147,7 @@ class RemoteBackend:
         description: str | None = None,
         tags: list[str] | None = None,
         group: str | None = None,
+        system: dict[str, Any] | None = None,
     ) -> None:
         self._create_payload = {
             "id": run_id,
@@ -161,6 +162,8 @@ class RemoteBackend:
             self._create_payload["tags"] = list(tags)
         if group:
             self._create_payload["group"] = group
+        if system:
+            self._create_payload["system"] = system
         self._ensure_created()
 
     def delete_run(self, run_id: str) -> bool:

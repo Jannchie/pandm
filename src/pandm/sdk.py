@@ -22,6 +22,8 @@ import functools
 import io
 import math
 import os
+import socket
+import subprocess
 import sys
 import threading
 import time
@@ -361,6 +363,45 @@ def _current() -> "Run":
     return _active_runs[-1]
 
 
+def _gpu_info() -> dict[str, Any]:
+    """GPUs this process can use, asked of the driver so it works for any framework
+    (torch, jax, tf, plain CUDA). Honors CUDA_VISIBLE_DEVICES the way frameworks do.
+    No nvidia-smi (CPU box, Mac) -> {}."""
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    names = [line.strip() for line in out.splitlines() if line.strip()]
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if visible is not None:
+        idx = [int(i) for i in visible.split(",") if i.strip().isdigit()]
+        names = [names[i] for i in idx if i < len(names)]
+    return {"gpu_count": len(names), "gpu_names": names} if names else {}
+
+
+def _system_info() -> dict[str, Any]:
+    """Machine snapshot stored beside the run (never in config). gpu_count is this
+    node's view; world_size (torchrun / deepspeed / accelerate / SLURM) is the
+    cluster-wide process count, which under the one-process-per-GPU convention is
+    the total GPU count the dashboard bills against."""
+    env = os.environ
+    info: dict[str, Any] = {"hostname": socket.gethostname(), **_gpu_info()}
+    if env.get("WORLD_SIZE", "").isdigit():
+        info["world_size"] = int(env["WORLD_SIZE"])
+        info["rank"] = int(env.get("RANK") or 0)
+    if "SLURM_JOB_ID" in env:
+        info["slurm_job_id"] = env["SLURM_JOB_ID"]
+        if env.get("SLURM_JOB_NUM_NODES", "").isdigit():
+            info["nodes"] = int(env["SLURM_JOB_NUM_NODES"])
+    return info
+
+
 class Run:
     def __init__(
         self,
@@ -424,6 +465,9 @@ class Run:
             description=self.description,
             tags=self.tags,
             group=self.group,
+            # a resume keeps the original row (INSERT OR IGNORE), so don't pay
+            # for the nvidia-smi call just to throw the snapshot away
+            system=None if existed else _system_info(),
         )
         if existed and mode:
             self._step = int(backend.resume_run(self.id)) + 1

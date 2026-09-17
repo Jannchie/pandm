@@ -95,14 +95,14 @@ class Uploader:
         root: Path,
         remote: RemoteBackend,
         run_id: str,
-        create: tuple[str, str, dict, float, str, list[str], str | None],
+        create: dict[str, Any],
     ):
         self.store = LocalStore(
             root
         )  # own connection — never contends with the SDK's flush path
         self.remote = remote
         self.run_id = run_id
-        # (project, name, config, created_at, description, tags, group): replayed in-thread, never blocks init
+        # create_run kwargs, replayed in-thread so init never blocks on the network
         self._create = create
         self.owner = _lease_owner()
         self._wake = threading.Event()
@@ -160,10 +160,7 @@ class Uploader:
         return pump_run(self.store, self.remote, self.run_id)
 
     def _loop(self) -> None:
-        project, name, config, created_at, description, tags, group = self._create
-        self.remote.create_run(
-            self.run_id, project, name, config, created_at, description, tags, group
-        )
+        self.remote.create_run(self.run_id, **self._create)
         while not self._stop.is_set():
             self._wake.wait(timeout=_PUMP_INTERVAL)
             self._wake.clear()
@@ -252,6 +249,7 @@ class DualBackend:
         description: str | None = None,
         tags: list[str] | None = None,
         group: str | None = None,
+        system: dict[str, Any] | None = None,
     ) -> None:
         now = time.time()
         self.local.create_run(
@@ -263,6 +261,7 @@ class DualBackend:
             description=description,
             tags=tags,
             group=group,
+            system=system,
         )
         self.local.ensure_sync_state(run_id)
         remote = RemoteBackend(self._server, self._api_key, transport=self._transport)
@@ -270,7 +269,16 @@ class DualBackend:
             self._root,
             remote,
             run_id,
-            create=(project, name, config, now, description or "", tags or [], group),
+            create=dict(
+                project=project,
+                name=name,
+                config=config,
+                created_at=now,
+                description=description,
+                tags=tags,
+                group=group,
+                system=system,
+            ),
         )
 
     def run_exists(self, run_id: str) -> bool:
@@ -392,6 +400,7 @@ def _sync_one(
             run["description"],
             run.get("tags") or [],
             run.get("group"),
+            run.get("system") or {},
         )
         if run["metric_meta"]:
             remote.set_metric_meta(
