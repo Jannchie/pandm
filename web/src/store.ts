@@ -489,16 +489,25 @@ export async function removeProject(project: string) {
 
 let refreshEpoch = 0
 
+// /api/projects aggregates over every run the user owns — a full scan that
+// billed D1 rows on every 2.5 s poll. The project list barely moves, so it
+// rides along only this often; the runs list is what the poll is for.
+const PROJECTS_EVERY_MS = 30_000
+let projectsAt = 0
+
 export async function refresh() {
   // Concurrent refreshes (poll tick + setProject + visibility flip) can be in
   // flight at once; tag each one and let only the newest commit, so a slow
   // response for the old project can't clobber the new project's runs.
   const myEpoch = ++refreshEpoch
   try {
+    const wantProjects =
+      !state.projects.length || Date.now() - projectsAt > PROJECTS_EVERY_MS
     const [projects, runs] = await Promise.all([
-      api.fetchProjects(),
+      wantProjects ? api.fetchProjects() : state.projects,
       api.fetchRuns(state.project || undefined),
     ])
+    if (wantProjects) projectsAt = Date.now()
     // there is no all-projects view — fall back to the most recently active project
     let nextProject = state.project
     let nextRuns = runs
@@ -737,7 +746,7 @@ watchEffect(() => {
 })
 
 // ---------------------------------------------------------------- caches
-// keyed by run id, invalidated whenever the run's updated_at changes
+// keyed by run id, invalidated whenever the run's data revision changes
 
 interface CacheEntry<T> {
   updated: number
@@ -751,12 +760,12 @@ function cached<T>(
   fetcher: () => Promise<T>,
 ): Promise<T> {
   const hit = map.get(key)
-  if (hit && hit.updated === run.updated_at) return hit.promise
+  if (hit && hit.updated === api.dataRev(run)) return hit.promise
   const promise = fetcher().catch((err) => {
     map.delete(key) // don't cache failures
     throw err
   })
-  map.set(key, { updated: run.updated_at, promise })
+  map.set(key, { updated: api.dataRev(run), promise })
   return promise
 }
 
@@ -785,7 +794,7 @@ const MAX_CLIENT_POINTS = 6000
 export function getSeries(run: api.Run, key: string): Promise<api.Series> {
   const ck = `${run.id} ${key}`
   const hit = seriesCache.get(ck)
-  if (hit && hit.updated === run.updated_at) return hit.promise
+  if (hit && hit.updated === api.dataRev(run)) return hit.promise
   const promise = (async () => {
     // live charts append the tail (an index range read server-side) instead of
     // re-reading the whole series on every poll. Late out-of-order steps are
@@ -797,7 +806,7 @@ export function getSeries(run: api.Run, key: string): Promise<api.Series> {
       prev.steps.length < MAX_CLIENT_POINTS
     ) {
       const lastStep = prev.steps[prev.steps.length - 1]
-      const tail = await api.fetchSeries(run.id, key, lastStep)
+      const tail = await api.fetchSeries(run, key, lastStep)
       // keep the append idempotent: drop any tail point at/below the last step we
       // already hold, so a boundary/non-monotonic overlap can't duplicate points
       let start = 0
@@ -808,18 +817,18 @@ export function getSeries(run: api.Run, key: string): Promise<api.Series> {
         ts: [...prev.ts, ...tail.ts.slice(start)],
       }
     }
-    return api.fetchSeries(run.id, key)
+    return api.fetchSeries(run, key)
   })()
   promise.catch(() => seriesCache.delete(ck)) // don't cache failures
-  seriesCache.set(ck, { updated: run.updated_at, promise })
+  seriesCache.set(ck, { updated: api.dataRev(run), promise })
   return promise
 }
 
 export const getMedia = (run: api.Run) =>
-  cached(mediaCache, run, run.id, () => api.fetchMedia(run.id))
+  cached(mediaCache, run, run.id, () => api.fetchMedia(run))
 
 // histograms aren't in run.stats (those are metric-only), so a run's distribution
-// keys are discovered with a dedicated request, cached by updated_at. The reactive
+// keys are discovered with a dedicated request, cached by data revision. The reactive
 // map drives the dashboard's Distributions section; getHistogram fetches a series.
 const histogramCache = new Map<string, CacheEntry<api.HistogramSeries>>()
 
@@ -828,7 +837,7 @@ export function getHistogram(
   key: string,
 ): Promise<api.HistogramSeries> {
   return cached(histogramCache, run, `${run.id} ${key}`, () =>
-    api.fetchHistogramSeries(run.id, key),
+    api.fetchHistogramSeries(run, key),
   )
 }
 
@@ -836,10 +845,10 @@ export const histogramKeysByRun = reactive<Record<string, string[]>>({})
 const hkVersion = new Map<string, number>()
 
 export async function ensureHistogramKeys(run: api.Run): Promise<void> {
-  if (hkVersion.get(run.id) === run.updated_at) return // already current for this revision
-  hkVersion.set(run.id, run.updated_at)
+  if (hkVersion.get(run.id) === api.dataRev(run)) return // already current for this revision
+  hkVersion.set(run.id, api.dataRev(run))
   try {
-    const keys = await api.fetchHistogramKeys(run.id)
+    const keys = await api.fetchHistogramKeys(run)
     histogramKeysByRun[run.id] = keys.map((k) => k.key)
   } catch {
     /* a run with no histograms / a transient error simply contributes nothing */

@@ -49,6 +49,10 @@ describe('auth & isolation', () => {
     expect((await api('/api/runs/iso00001', { headers: keyOf(alice) })).status).toBe(200)
     expect((await api('/api/runs/iso00001', { headers: keyOf(bob) })).status).toBe(404)
     expect((await api('/api/runs/iso00001/metrics/loss', { headers: keyOf(bob) })).status).toBe(404)
+    // the rev= fast path answers from the cached owner — still alice's, still 404 for bob
+    const alice1 = (await (await api('/api/runs/iso00001', { headers: keyOf(alice) })).json()) as any
+    expect((await api(`/api/runs/iso00001/metrics/loss?rev=${alice1.data_rev}`, { headers: keyOf(alice) })).status).toBe(200)
+    expect((await api(`/api/runs/iso00001/metrics/loss?rev=${alice1.data_rev}`, { headers: keyOf(bob) })).status).toBe(404)
     expect((await post('/api/runs/iso00001/metrics', rows, keyOf(bob))).status).toBe(404)
     expect((await api('/api/runs/iso00001', { method: 'DELETE', headers: keyOf(bob) })).status).toBe(404)
     const bobRuns = (await (await api('/api/runs', { headers: keyOf(bob) })).json()) as any[]

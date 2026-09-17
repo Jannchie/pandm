@@ -61,11 +61,28 @@ app.use('/api/*', async (c, next) => {
   return next()
 })
 
+// per-isolate cache of a run's immutable meta (owner, storage engine). A run
+// never changes hands, so the row read that every series/media request paid just
+// to check ownership can be skipped — the dashboard fetches 30–100 series per poll.
+const META_TTL_MS = 600_000
+const metaCache = new Map<string, { user_id: number; legacy: boolean; exp: number }>()
+
 /** In multi-user mode a foreign run is indistinguishable from a missing one.
- * Stashes the run's meta (one row read) for the response cache key below. */
+ * Stashes the run's meta for the response cache key below. With `?rev=` (the
+ * data_rev the client just saw on /api/runs) and a cached owner this costs zero
+ * D1 rows; otherwise one. */
 async function ownerGuard(c: any, runId: string): Promise<Response | null> {
+  const rev = Number(c.req.query('rev'))
+  const hit = metaCache.get(runId)
+  if (Number.isFinite(rev) && hit && hit.exp > Date.now()) {
+    if (hit.user_id !== c.get('user').id) return detail(c, 404, 'run not found')
+    c.set('runMeta', { user_id: hit.user_id, legacy: hit.legacy, data_rev: rev })
+    return null
+  }
   const meta = await db.runMeta(c.env.DB, runId)
   if (!meta || meta.user_id !== c.get('user').id) return detail(c, 404, 'run not found')
+  metaCache.set(runId, { user_id: meta.user_id, legacy: !!meta.legacy, exp: Date.now() + META_TTL_MS })
+  if (metaCache.size > 10_000) metaCache.clear() // bounded; cold again, not wrong
   c.set('runMeta', meta)
   return null
 }

@@ -19,6 +19,7 @@ export interface RunRow {
   config: string
   created_at: number
   updated_at: number
+  data_rev: number // bumped only when series/media data changes (0009); the client's cache key
   finished_at: number | null
   active_seconds: number // wall-clock time of prior launch segments (resume-aware)
   segment_started_at: number | null // start of the current segment; NULL on legacy rows
@@ -73,6 +74,7 @@ export function runToDict(
     config: JSON.parse(row.config),
     created_at: row.created_at,
     updated_at: row.updated_at,
+    data_rev: row.data_rev,
     finished_at: row.finished_at,
     active_seconds: row.active_seconds ?? 0,
     segment_started_at: row.segment_started_at ?? null,

@@ -25,6 +25,9 @@ export interface Run {
   config: Record<string, unknown>
   created_at: number
   updated_at: number
+  // bumped only when series/media data lands (not on heartbeat/progress) — what
+  // the series/media/histogram caches key on. Absent on the local Python server.
+  data_rev?: number
   finished_at: number | null
   // resume-aware training time: sum of prior launch segments, plus the current
   // segment measured from segment_started_at (see runDuration in fmt.ts).
@@ -173,20 +176,35 @@ export const fetchRuns = (project?: string) =>
     `/api/runs${project ? `?project=${encodeURIComponent(project)}` : ''}`,
   )
 
-export const fetchSeries = (runId: string, key: string, afterStep?: number) =>
+/** The data revision a run's per-key caches key on: data_rev where the server
+ *  has one, else updated_at (which also moves on every heartbeat). */
+export const dataRev = (run: Run) => run.data_rev ?? run.updated_at
+
+// `rev=` lets the server skip its ownership row read and serve straight from the
+// edge cache — the client has just seen the revision on /api/runs anyway
+const qs = (run: Run, extra: Record<string, number | undefined> = {}) => {
+  const p = new URLSearchParams()
+  if (run.data_rev != null) p.set('rev', String(run.data_rev))
+  for (const [k, v] of Object.entries(extra))
+    if (v !== undefined) p.set(k, String(v))
+  const s = p.toString()
+  return s ? `?${s}` : ''
+}
+
+export const fetchSeries = (run: Run, key: string, afterStep?: number) =>
   get<Series>(
-    `/api/runs/${runId}/metrics/${encodeURIComponent(key)}${afterStep !== undefined ? `?after_step=${afterStep}` : ''}`,
+    `/api/runs/${run.id}/metrics/${encodeURIComponent(key)}${qs(run, { after_step: afterStep })}`,
   )
 
-export const fetchMedia = (runId: string) =>
-  get<MediaItem[]>(`/api/runs/${runId}/media`)
+export const fetchMedia = (run: Run) =>
+  get<MediaItem[]>(`/api/runs/${run.id}/media${qs(run)}`)
 
-export const fetchHistogramKeys = (runId: string) =>
-  get<HistogramKey[]>(`/api/runs/${runId}/histograms`)
+export const fetchHistogramKeys = (run: Run) =>
+  get<HistogramKey[]>(`/api/runs/${run.id}/histograms${qs(run)}`)
 
-export const fetchHistogramSeries = (runId: string, key: string) =>
+export const fetchHistogramSeries = (run: Run, key: string) =>
   get<HistogramSeries>(
-    `/api/runs/${runId}/histograms/${encodeURIComponent(key)}`,
+    `/api/runs/${run.id}/histograms/${encodeURIComponent(key)}${qs(run)}`,
   )
 
 export async function deleteRun(runId: string): Promise<void> {
