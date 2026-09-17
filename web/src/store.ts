@@ -44,6 +44,9 @@ export const state = reactive({
   // instead and draw one copy of the panel per run, side by side
   keepPanels: false,
   showDebug: false, // the importance="debug" fold at the page bottom
+  // $ per GPU-hour, for the "cost so far" tile: gpus × training hours × this.
+  // Per-viewer (a local pref), since the price is an org fact, not a run fact.
+  gpuHourRate: 2,
   // run-level scatter (one point per run): which metric on each axis, and which
   // per-run aggregate of it to plot
   scatterX: '',
@@ -647,6 +650,7 @@ const PREF_FIELDS = [
   'stitchGroups',
   'keepPanels',
   'showDebug',
+  'gpuHourRate',
   'scatterX',
   'scatterY',
   'scatterAgg',

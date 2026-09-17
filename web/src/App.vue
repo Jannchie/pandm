@@ -7,6 +7,7 @@ import Lightbox from './components/Lightbox.vue'
 import LoginGate from './components/LoginGate.vue'
 import MediaPanel from './components/MediaPanel.vue'
 import MetricsPanel from './components/MetricsPanel.vue'
+import RunHeader from './components/RunHeader.vue'
 import ScatterPanel from './components/ScatterPanel.vue'
 import Sidebar from './components/Sidebar.vue'
 import TablePanel from './components/TablePanel.vue'
@@ -49,6 +50,7 @@ watch(smoothing, (v) => {
     <div class="flex flex-1 min-h-0">
       <Sidebar />
       <main class="flex-1 min-w-0 flex flex-col">
+        <RunHeader />
         <!-- tab bar + per-tab controls -->
         <div
           class="flex flex-col md:flex-row md:h-[37px] md:items-center border-b border-border shrink-0"
