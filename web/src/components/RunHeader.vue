@@ -5,6 +5,7 @@ import { runDuration } from '../api'
 import { runColor } from '../colors'
 import { estimateEta } from '../eta'
 import { fmtClock, fmtDuration, fmtMetric, fmtStep } from '../fmt'
+import { gpuPrice } from '../gpuPrice'
 import { clock, selectedRuns, state } from '../store'
 
 // One status strip per selected run, above the tabs: where it is (step, elapsed,
@@ -21,6 +22,9 @@ const cards = computed(() =>
   selectedRuns.value.map((run) => {
     const secs = runDuration(run, clock.now)
     const n = gpus(run)
+    // the viewer's own rate wins; else price the detected GPU model; else no cost
+    const listed = gpuPrice(run.system?.gpu_names)
+    const rate = state.gpuHourRate || listed?.perGpuHour || null
     const eta = run.status === 'running' ? estimateEta(run) : null
     const kpis = Object.entries(run.metric_meta)
       .filter(([, m]) => m.importance === 'primary')
@@ -35,7 +39,9 @@ const cards = computed(() =>
       secs,
       gpus: n,
       gpuName: run.system?.gpu_names?.[0],
-      cost: n ? (n * secs * state.gpuHourRate) / 3600 : null,
+      rate,
+      rateSource: state.gpuHourRate ? 'manual' : listed?.source,
+      cost: n && rate != null ? (n * secs * rate) / 3600 : null,
       eta,
       kpis,
     }
@@ -46,12 +52,13 @@ const total = computed(() =>
   cards.value.reduce((sum, c) => sum + (c.cost ?? 0), 0),
 )
 
+// cents matter while a run is minutes old; whole dollars once it's real money
 const money = (v: number) =>
-  `$${v.toLocaleString('en-US', { maximumFractionDigits: v < 100 ? 2 : 0 })}`
+  `$${v.toLocaleString('en-US', v < 100 ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : { maximumFractionDigits: 0 })}`
 </script>
 
 <template>
-  <div v-if="cards.length" class="px-4 pt-4 pb-3 flex flex-col gap-3">
+  <div v-if="cards.length" class="flex flex-col gap-3">
     <div v-for="(c, i) in cards" :key="c.run.id" class="card min-w-0">
       <!-- identity + progress -->
       <div class="flex items-center gap-4 p-3 flex-wrap">
@@ -113,28 +120,42 @@ const money = (v: number) =>
         style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr))"
       >
         <template v-if="c.gpus">
-          <div class="p-3 border-r border-border last:border-r-0">
-            <div class="flex items-center gap-1 text-[12.5px] text-fg-dim">
+          <div
+            v-if="c.cost != null"
+            class="p-3 border-r border-border last:border-r-0"
+          >
+            <div
+              class="flex items-center gap-1 text-[12.5px] text-fg-dim truncate"
+            >
               cost so far ·
-              <!-- the only knob: what one GPU-hour costs you. One pref, so one
-                   input — the other cards just echo the number -->
+              <!-- the rate is the AWS list price for the detected GPU unless the
+                   viewer types their own; one pref, so one input (first card) -->
               <input
                 v-if="i === 0"
-                v-model.number="state.gpuHourRate"
+                :value="state.gpuHourRate || ''"
+                :placeholder="String(c.rate!.toFixed(2))"
                 type="number"
                 min="0"
                 step="0.1"
-                title="$ per GPU-hour"
-                class="w-12 bg-transparent font-mono tabular-nums text-fg-mut border-b border-dashed border-border outline-none focus:border-accent/60"
+                title="$ per GPU-hour — leave blank for the AWS list price"
+                class="w-14 bg-transparent font-mono tabular-nums text-fg-mut placeholder:text-fg-dim border-b border-dashed border-border outline-none focus:border-accent/60"
+                @input="
+                  state.gpuHourRate = Number(
+                    ($event.target as HTMLInputElement).value,
+                  )
+                "
               /><span v-else class="font-mono text-fg-mut">{{
-                state.gpuHourRate
+                c.rate!.toFixed(2)
               }}</span
               >$/GPU·h
+              <span v-if="c.rateSource" class="truncate"
+                >· {{ c.rateSource }}</span
+              >
             </div>
             <div
               class="font-mono text-[19px] text-fg tabular-nums leading-none mt-1"
             >
-              {{ money(c.cost!) }}
+              {{ money(c.cost) }}
             </div>
           </div>
           <div class="p-3 border-r border-border last:border-r-0">

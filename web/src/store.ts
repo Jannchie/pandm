@@ -44,9 +44,11 @@ export const state = reactive({
   // instead and draw one copy of the panel per run, side by side
   keepPanels: false,
   showDebug: false, // the importance="debug" fold at the page bottom
-  // $ per GPU-hour, for the "cost so far" tile: gpus × training hours × this.
-  // Per-viewer (a local pref), since the price is an org fact, not a run fact.
-  gpuHourRate: 2,
+  // $ per GPU-hour override for the "cost so far" tile; 0 = price the run's GPU
+  // model from the AWS table (gpuPrice.ts). A number rather than null so the
+  // prefs restore (which type-checks each field) can round-trip it. Per-viewer,
+  // since your actual rate is an org fact, not a run fact.
+  gpuHourRate: 0,
   // run-level scatter (one point per run): which metric on each axis, and which
   // per-run aggregate of it to plot
   scatterX: '',

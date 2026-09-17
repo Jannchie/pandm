@@ -11,6 +11,7 @@ import {
 } from '../store'
 import AlarmBar from './AlarmBar.vue'
 import ChartCard from './ChartCard.vue'
+import RunHeader from './RunHeader.vue'
 
 // The chart list itself lives in the store — the tab bar counts it, so it can't be
 // built by this component. What's left here is purely how the page lays them out.
@@ -78,6 +79,7 @@ const noMatch = computed(() => visibleCharts.value.length === 0)
 
 <template>
   <div v-if="charts.length" class="p-4 flex flex-col gap-5">
+    <RunHeader />
     <AlarmBar />
 
     <!-- ★ primary: the metrics the experiment is judged on -->
