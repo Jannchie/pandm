@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
+
+# Set before pandm.cli is imported: its module-level rich Console reads
+# NO_COLOR at construction, so tests assert on plain (uncolored) stdout.
+os.environ.setdefault("NO_COLOR", "1")
 
 
 @pytest.fixture(autouse=True)
