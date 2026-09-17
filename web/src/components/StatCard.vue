@@ -44,7 +44,11 @@ function spark(values: number[]): { points: string; area: string } {
   }
 }
 
-watchEffect(async () => {
+watchEffect(async (onCleanup) => {
+  let stale = false
+  onCleanup(() => {
+    stale = true
+  })
   const members = props.desc.series
   const laneList = lanes.value
   const cells = laneList.flatMap((lane, li) =>
@@ -79,7 +83,7 @@ watchEffect(async () => {
       }
     }),
   )
-  rows.value = built
+  if (!stale) rows.value = built
 })
 </script>
 
