@@ -204,6 +204,7 @@ app.post('/api/runs', async (c) => {
     tags?: string[]
     group?: string
     config?: unknown
+    system?: unknown
     created_at?: number
   }>()
   const runId = body.id || db.newRunId()
@@ -213,7 +214,7 @@ app.post('/api/runs', async (c) => {
   await db.createRun(
     c.env.DB, runId, body.project ?? 'default', body.name ?? 'unnamed',
     body.config ?? {}, body.created_at ?? null, c.get('user').id, body.description ?? '',
-    body.tags ?? [], body.group ?? null,
+    body.tags ?? [], body.group ?? null, body.system ?? {},
   )
   return c.json({ id: runId })
 })

@@ -31,6 +31,7 @@ export interface RunRow {
   metric_meta: string // author-declared {key: {min,max,unit,goal,baseline}} display specs
   tags: string // JSON array of free-form labels (init(tags=...))
   group_name: string | null // buckets related runs (init(group=...)); `group` is a SQL keyword
+  system: string | null // JSON machine snapshot from init (gpus, world_size, …); NULL = pre-migration row
 }
 
 export interface MetricIn {
@@ -67,6 +68,7 @@ export function runToDict(
     description: row.description ?? '',
     tags: JSON.parse(row.tags ?? '[]'),
     group: row.group_name ?? null,
+    system: JSON.parse(row.system ?? '{}'),
     status,
     config: JSON.parse(row.config),
     created_at: row.created_at,
@@ -151,16 +153,17 @@ export async function createRun(
   description = '',
   tags: string[] = [],
   group: string | null = null,
+  system: unknown = {},
 ): Promise<void> {
   const ts = createdAt ?? now()
   // stats = '{}' (not NULL) marks this run as DO-served — its series live in the
   // RunStore Durable Object, and listRuns/getRun read the materialized stats here.
   await db
     .prepare(
-      `INSERT OR IGNORE INTO runs (id, project, name, description, status, config, created_at, updated_at, segment_started_at, user_id, summary, stats, tags, group_name)
-       VALUES (?1, ?2, ?3, ?4, 'running', ?5, ?6, ?7, ?7, ?8, '{}', '{}', ?9, ?10)`,
+      `INSERT OR IGNORE INTO runs (id, project, name, description, status, config, created_at, updated_at, segment_started_at, user_id, summary, stats, tags, group_name, system)
+       VALUES (?1, ?2, ?3, ?4, 'running', ?5, ?6, ?7, ?7, ?8, '{}', '{}', ?9, ?10, ?11)`,
     )
-    .bind(runId, project, name, description, JSON.stringify(config ?? {}), ts, ts, userId, JSON.stringify(normTags(tags)), group || null)
+    .bind(runId, project, name, description, JSON.stringify(config ?? {}), ts, ts, userId, JSON.stringify(normTags(tags)), group || null, JSON.stringify(system ?? {}))
     .run()
 }
 

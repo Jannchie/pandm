@@ -129,6 +129,17 @@ describe('metrics ingest & watermark', () => {
     expect(plain.group).toBeNull()
   })
 
+  it('roundtrips the system snapshot, defaulting to {}', async () => {
+    const system = { hostname: 'node-3', gpu_count: 8, world_size: 64 }
+    await post('/api/runs', { id: 'sys00001', project: 'p', name: 'sys', system }, keyOf(alice))
+    const run = (await (await api('/api/runs/sys00001', { headers: keyOf(alice) })).json()) as any
+    expect(run.system).toEqual(system)
+
+    await post('/api/runs', { id: 'sys00002', project: 'p', name: 'plain' }, keyOf(alice))
+    const plain = (await (await api('/api/runs/sys00002', { headers: keyOf(alice) })).json()) as any
+    expect(plain.system).toEqual({})
+  })
+
   it('treats non-finite metric values as chart gaps without poisoning stats', async () => {
     await post('/api/runs', { id: 'nan00001', project: 'p', name: 'nan' }, keyOf(alice))
     // NaN/Infinity serialize to null over JSON — the realistic on-wire form of a diverged loss
