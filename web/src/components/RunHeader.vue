@@ -51,24 +51,17 @@ const money = (v: number) =>
 </script>
 
 <template>
-  <div
-    v-if="cards.length"
-    class="flex flex-col gap-2 px-3 pt-3 pb-1 border-b border-border"
-  >
-    <div
-      v-for="(c, i) in cards"
-      :key="c.run.id"
-      class="border border-border rounded-lg bg-elev/40 overflow-hidden"
-    >
+  <div v-if="cards.length" class="px-4 pt-4 pb-3 flex flex-col gap-3">
+    <div v-for="(c, i) in cards" :key="c.run.id" class="card min-w-0">
       <!-- identity + progress -->
-      <div class="flex items-center gap-4 px-3.5 py-2.5 flex-wrap">
+      <div class="flex items-center gap-4 p-3 flex-wrap">
         <div class="flex items-center gap-2 min-w-0">
           <span
             class="w-2 h-2 rounded-full shrink-0"
             :class="c.run.status === 'running' && 'pulse'"
             :style="{ background: c.color }"
           />
-          <span class="font-mono text-[15px] text-fg truncate">{{
+          <span class="font-mono text-[14px] font-medium text-fg truncate">{{
             c.run.name
           }}</span>
           <span
@@ -79,17 +72,15 @@ const money = (v: number) =>
         </div>
         <span
           v-if="c.run.progress != null"
-          class="font-mono text-[16px] text-fg shrink-0"
+          class="font-mono text-[14px] text-fg tabular-nums shrink-0"
           >step {{ fmtStep(Math.floor(c.run.progress)) }}</span
         >
-        <div class="font-mono leading-tight shrink-0">
-          <div class="text-[14px] text-fg tabular-nums">
-            {{ fmtDuration(c.secs) }}
-          </div>
-          <div class="text-[11.5px] text-fg-dim">
-            started {{ fmtClock(c.run.created_at) }}
-          </div>
-        </div>
+        <span class="font-mono text-[12.5px] text-fg-mut tabular-nums shrink-0">
+          {{ fmtDuration(c.secs) }}
+          <span class="text-fg-dim"
+            >· started {{ fmtClock(c.run.created_at) }}</span
+          >
+        </span>
         <template v-if="c.eta && c.eta.fraction != null">
           <div class="flex-1 min-w-[120px] h-1 rounded-full bg-border">
             <div
@@ -114,53 +105,60 @@ const money = (v: number) =>
         </template>
       </div>
 
-      <!-- kpi tiles -->
+      <!-- kpi tiles: only what this run actually has — no GPU snapshot, no
+           cost/gpu tiles; no primary metrics, no metric tiles -->
       <div
+        v-if="c.gpus || c.kpis.length"
         class="grid border-t border-border"
         style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr))"
       >
-        <div class="px-3.5 py-2 border-r border-border/60 last:border-r-0">
-          <div class="flex items-center gap-1 text-[11.5px] text-fg-dim">
-            cost so far ·
-            <!-- the only knob: what one GPU-hour costs you. One pref, so one
-                 input — the other cards just echo the number -->
-            <input
-              v-if="i === 0"
-              v-model.number="state.gpuHourRate"
-              type="number"
-              min="0"
-              step="0.1"
-              title="$ per GPU-hour"
-              class="w-12 bg-transparent font-mono tabular-nums text-fg-mut border-b border-dashed border-border outline-none focus:border-accent/60"
-            /><span v-else class="font-mono text-fg-mut">{{
-              state.gpuHourRate
-            }}</span
-            >$/GPU·h
-          </div>
-          <div class="font-mono text-[19px] text-fg tabular-nums leading-tight">
-            {{ c.cost == null ? '–' : money(c.cost) }}
-          </div>
-        </div>
-        <div class="px-3.5 py-2 border-r border-border/60 last:border-r-0">
-          <div class="text-[11.5px] text-fg-dim truncate">
-            gpus<template v-if="c.gpuName"> · {{ c.gpuName }}</template>
-          </div>
-          <div class="font-mono text-[19px] text-fg tabular-nums leading-tight">
-            {{ c.gpus || '–' }}
-            <span v-if="c.gpus" class="text-[12px] text-fg-dim"
-              >× {{ fmtDuration(c.secs) }}</span
+        <template v-if="c.gpus">
+          <div class="p-3 border-r border-border last:border-r-0">
+            <div class="flex items-center gap-1 text-[12.5px] text-fg-dim">
+              cost so far ·
+              <!-- the only knob: what one GPU-hour costs you. One pref, so one
+                   input — the other cards just echo the number -->
+              <input
+                v-if="i === 0"
+                v-model.number="state.gpuHourRate"
+                type="number"
+                min="0"
+                step="0.1"
+                title="$ per GPU-hour"
+                class="w-12 bg-transparent font-mono tabular-nums text-fg-mut border-b border-dashed border-border outline-none focus:border-accent/60"
+              /><span v-else class="font-mono text-fg-mut">{{
+                state.gpuHourRate
+              }}</span
+              >$/GPU·h
+            </div>
+            <div
+              class="font-mono text-[19px] text-fg tabular-nums leading-none mt-1"
             >
+              {{ money(c.cost!) }}
+            </div>
           </div>
-        </div>
+          <div class="p-3 border-r border-border last:border-r-0">
+            <div class="text-[12.5px] text-fg-dim truncate">
+              gpus<template v-if="c.gpuName"> · {{ c.gpuName }}</template>
+            </div>
+            <div
+              class="font-mono text-[19px] text-fg tabular-nums leading-none mt-1"
+            >
+              {{ c.gpus }}
+            </div>
+          </div>
+        </template>
         <div
           v-for="k in c.kpis"
           :key="k.key"
-          class="px-3.5 py-2 border-r border-border/60 last:border-r-0 min-w-0"
+          class="p-3 border-r border-border last:border-r-0 min-w-0"
         >
-          <div class="text-[11.5px] text-fg-dim truncate" :title="k.key">
+          <div class="text-[12.5px] text-fg-dim truncate" :title="k.key">
             {{ k.label }}
           </div>
-          <div class="font-mono text-[19px] text-fg tabular-nums leading-tight">
+          <div
+            class="font-mono text-[19px] text-fg tabular-nums leading-none mt-1"
+          >
             {{ k.value }}
           </div>
         </div>
@@ -168,7 +166,7 @@ const money = (v: number) =>
     </div>
     <div
       v-if="cards.length > 1 && total > 0"
-      class="self-end font-mono text-[12px] text-fg-dim tabular-nums px-1"
+      class="self-end font-mono text-[12.5px] text-fg-dim tabular-nums"
     >
       total cost <span class="text-fg-mut">{{ money(total) }}</span>
     </div>
