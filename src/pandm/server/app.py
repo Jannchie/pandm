@@ -21,6 +21,7 @@ from fastapi import (
     Form,
     Header,
     HTTPException,
+    Query,
     Request,
     UploadFile,
 )
@@ -164,9 +165,13 @@ def create_app(
 
     @app.get("/api/runs")
     def runs(
-        project: str | None = None, user: dict | None = Depends(current_user)
+        project: str | None = None,
+        limit: int = Query(100, ge=1, le=500),
+        user: dict | None = Depends(current_user),
     ) -> list[dict[str, Any]]:
-        return store.list_runs(project, user_id=user["id"] if user else None)
+        return store.list_runs(
+            project, user_id=user["id"] if user else None, limit=limit
+        )
 
     @app.get("/api/runs/{run_id}")
     def run_detail(

@@ -583,7 +583,10 @@ class LocalStore:
         return [dict(r) for r in rows]
 
     def list_runs(
-        self, project: str | None = None, user_id: int | None = None
+        self,
+        project: str | None = None,
+        user_id: int | None = None,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
         clauses, params = [], []
         if project:
@@ -595,7 +598,9 @@ class LocalStore:
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._lock:
             rows = self._db.execute(
-                f"SELECT * FROM runs {where} ORDER BY created_at DESC", params
+                # SQLite treats LIMIT -1 as "no limit"
+                f"SELECT * FROM runs {where} ORDER BY created_at DESC LIMIT ?",
+                [*params, -1 if limit is None else limit],
             ).fetchall()
         runs = [_run_row_to_dict(r) for r in rows]
         ids = [r["id"] for r in runs]

@@ -20,6 +20,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+_PULL_MAX_POINTS = 1_000_000
 
 DirOption = typer.Option(
     None, "--dir", "-d", help="Data directory (default: ./.pandm or $PANDM_DIR)."
@@ -823,7 +824,9 @@ def pull(
             )
             for meta in fetch(f"/api/runs/{rid}/metrics").json():
                 key = meta["key"]
-                s = fetch(f"/api/runs/{rid}/metrics/{key}", max_points=2**31 - 1).json()
+                s = fetch(
+                    f"/api/runs/{rid}/metrics/{key}", max_points=_PULL_MAX_POINTS
+                ).json()
                 store.log_metrics(
                     rid,
                     list(
@@ -833,7 +836,7 @@ def pull(
             for meta in fetch(f"/api/runs/{rid}/histograms").json():
                 key = meta["key"]
                 s = fetch(
-                    f"/api/runs/{rid}/histograms/{key}", max_steps=2**31 - 1
+                    f"/api/runs/{rid}/histograms/{key}", max_steps=_PULL_MAX_POINTS
                 ).json()
                 for step, bins, counts, ts in zip(
                     s["steps"], s["bins"], s["counts"], s["ts"]
