@@ -936,6 +936,7 @@ def test_system_snapshot_stored_beside_run(tmp_path, monkeypatch):
     run.finish()
     store = LocalStore(tmp_path)
     got = store.get_run(run.id)
+    assert got is not None
     assert got["config"] == {"lr": 1}
     assert got["system"]["world_size"] == 16
     assert got["system"]["rank"] == 3
