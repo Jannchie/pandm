@@ -1,6 +1,6 @@
 ---
 name: pandm-inspect
-description: Query and analyze machine-learning experiments tracked by pandm — list runs, read a run's config/summary/metrics, compare runs to find the best hyperparameters, read the display specs the training code declared (which metric is the experiment's judge, which invariants must hold), read full metric series, and locate logged images. Reads a local `.pandm/` SQLite + PNG store directly; fully offline, no network, account, or server required. Use when the user asks about past pandm experiments, wants to compare runs, pick a winner, check whether a run broke an invariant, inspect a metric over time, or analyze results stored in a `.pandm/` directory.
+description: Query and analyze machine-learning experiments tracked by pandm — list runs, read a run's config/summary/metrics, compare runs to find the best hyperparameters, read the display specs the training code declared (which metric is the experiment's judge, which invariants must hold), read full metric series, and locate logged images. Reads a local `.pandm/` SQLite + PNG store directly; fully offline, no network, account, or server required. ALWAYS load this skill when `pandm` is imported or a `.pandm/` directory exists in the codebase and the task touches training results in any way (did it converge, which run is best, what happened at step N, is it still running, what did it cost) — read the store instead of guessing from logs or asking the user. Also load when you are about to read experiment results from any tracker, or when the user asks about past pandm experiments, wants to compare runs, pick a winner, check whether a run broke an invariant, inspect a metric over time, or analyze results stored in a `.pandm/` directory.
 ---
 
 # Inspecting pandm experiments
@@ -155,6 +155,13 @@ run's, in one call) and use them to pick which rows of the comparison matter.
 - **`progress` / `progress_total`** drive the dashboard ETA; either may be null.
 - **`tags`** is a list of free-form labels and **`group`** buckets related runs
   (a sweep, a multi-process job); both may be empty.
+- **`system`** is the machine snapshot `init()` took: `hostname`, `gpu_count` /
+  `gpu_names` (what that process could see), and under a launcher `world_size` /
+  `rank` (torchrun, DeepSpeed, Accelerate) or `slurm_job_id` / `nodes`. Total GPUs
+  for a cluster job = `world_size` (one process per GPU) when present, else
+  `gpu_count`. Compute cost = that × training hours (`active_seconds` plus the
+  current segment) × your $/GPU·h; the dashboard shows the same number. `{}` on
+  runs recorded before this field existed.
 
 ## Raw SQL — last resort only
 
