@@ -153,6 +153,12 @@ run's, in one call) and use them to pick which rows of the comparison matter.
   inferred one usually means the machine died and the code is fine. `pandm finish
   --stale` turns the inference into a stored verdict.
 - **`progress` / `progress_total`** drive the dashboard ETA; either may be null.
+- **A resumed run is one run.** `init(id=..., resume=True)` continues the same row
+  after a crash or pod restart, so a metric series can span several launches;
+  `active_seconds` sums the finished launch segments and `segment_started_at` marks
+  the current one, so training time = `active_seconds + (end - segment_started_at)`
+  and never counts the dead gap. A run whose steps restart at 0 mid-series is a
+  script that forgot to resume, not two experiments.
 - **`tags`** is a list of free-form labels and **`group`** buckets related runs
   (a sweep, a multi-process job); both may be empty.
 - **`system`** is the machine snapshot `init()` took: `hostname`, `gpu_count` /

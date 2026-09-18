@@ -54,6 +54,35 @@ with pandm.init(project="mnist", config={"lr": 1e-3}) as run:
     run.log({"loss": 0.5})
 ```
 
+## Surviving restarts — one job, one run
+
+Training pods get preempted, OOM-killed, and rescheduled. Without a stable id every
+restart opens a new run and the experiment becomes N disconnected fragments. Any
+training script that checkpoints must also resume its run:
+
+```python
+run = pandm.init(
+    project="llm",
+    id=os.environ["JOB_NAME"],   # anything stable across restarts: job name, $SLURM_JOB_ID, ckpt dir
+    resume=True,                 # continue if it exists, else start fresh
+    total_steps=TOTAL,
+)
+start = load_checkpoint()        # your own checkpoint; None/0 on a cold start
+for step in range(start, TOTAL):
+    run.log({...}, step=step)    # explicit step, aligned with the checkpoint
+```
+
+- Works on a **blank disk**: when signed in (`pandm login` / `PANDM_REMOTE`), a run
+  the new pod can't find locally is looked up on the server and continued there.
+- `resume="must"` errors if the id is missing (use it when a restart without a
+  checkpoint would be a bug). A fresh `id=` that already exists errors unless
+  `resume` is set, so two jobs can't silently write into one run.
+- The run flips back to `running`, keeps its original config, and its auto step
+  counter continues past the last logged step; the dashboard's duration excludes the
+  dead time between the crash and the restart.
+- Don't derive the id from the time, a random seed, or `os.getpid()` — those change
+  on every launch.
+
 ## Title everything — the first job, not the last
 
 A chart nobody can read is wasted compute. **Every run and every metric needs a
@@ -94,7 +123,7 @@ title and subtitle come first.
 
 | Call | Purpose |
 |---|---|
-| `pandm.init(project="default", name=None, config=None, *, description=None, total_steps=None, tags=None, group=None, directory=None, remote=None, api_key=None)` | Start a run; returns a `Run` (also a context manager). `description` = a one-line subtitle; `tags=[...]` = filterable labels; `group=` buckets related runs (a sweep, a multi-process job). |
+| `pandm.init(project="default", name=None, config=None, *, description=None, id=None, resume=False, total_steps=None, tags=None, group=None, directory=None, remote=None, api_key=None)` | Start a run; returns a `Run` (also a context manager). `description` = a one-line subtitle; `id=` + `resume=True` continues an existing run after a restart (see *Surviving restarts*); `tags=[...]` = filterable labels; `group=` buckets related runs (a sweep, a multi-process job). |
 | `run.log(metrics: dict, step=None)` | Log scalar metrics. `step` defaults to an internal per-run counter. |
 | `run.log_image(key, image, step=None, caption=None)` | Log one image. `step` defaults to the latest metric step. |
 | `run.log_histogram(key, samples, *, step=None, bins=30, description=None)` | Log a distribution snapshot — drawn over time as a density heatmap. Needs numpy. See *Shaping how a metric renders*. |
@@ -306,17 +335,12 @@ pandm: run "baseline" [a1b2c3d4] -> https://pandm.jannchie.com/?project=mnist&ru
   Pass it and keep it monotonic per key — the dashboard plots against it.
 - **Group keys with `/`.** `train/loss`, `val/loss`, `lr` — the dashboard groups by the
   prefix before the slash.
-- **A job that gets killed and restarted (preemption, OOM, spot) should land in one
-  run:** give `init()` a stable `id=` (job name, `$SLURM_JOB_ID`, checkpoint dir) and
-  `resume=True`. Works on a blank disk too — when signed in the run is found on the
-  server — so load the checkpoint and log with its `step`; the auto counter also
-  continues past the last logged step.
-- **Resuming a training? reuse the `group=`.** A run split across restarts (preemption,
-  a second stage, a manual resume) is *one* experiment. Give every segment the same
-  `group=` and keep `step` continuing where the previous segment stopped — the
-  dashboard's *▤ stitch* toggle then reads the segments back to back as a single
-  continuous curve. A fresh group per restart, or steps that restart at 0, leaves you
-  with N unrelated runs overlapping each other.
+- **A restarted job belongs in the same run** — `id=` + `resume=True`, see *Surviving
+  restarts*. Reserve `group=` for segments that really are separate runs (a second
+  training stage with its own config, a sweep): give them the same `group=` and keep
+  `step` continuing where the previous one stopped, and the dashboard's *▤ stitch*
+  toggle reads them back to back as one curve. Steps that restart at 0 leave you with
+  N runs overlapping each other.
 - **NaN / Inf are dropped silently.** Guard values you actually need; a sometimes-nonfinite
   metric gets gaps, not errors.
 - **Images** accept a PIL `Image`, a numpy/torch array (HWC *or* CHW is detected; float
