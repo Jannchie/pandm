@@ -133,6 +133,23 @@ describe('metrics ingest & watermark', () => {
     expect(plain.group).toBeNull()
   })
 
+  it('resume reopens the seq space so a restarted pod is not deduped away', async () => {
+    await post('/api/runs', { id: 'seq00001', project: 'p', name: 'r' }, keyOf(alice))
+    const seq = (seq: number, step: number) => ({ rows: [{ key: 'loss', step, value: 1, ts: 1, seq }] })
+    await post('/api/runs/seq00001/metrics', seq(1, 0), keyOf(alice))
+    await post('/api/runs/seq00001/metrics', seq(2, 1), keyOf(alice))
+    // same pod re-pushing seq 2 is a replay -> dropped
+    await post('/api/runs/seq00001/metrics', seq(2, 1), keyOf(alice))
+    let series = (await (await api('/api/runs/seq00001/metrics/loss', { headers: keyOf(alice) })).json()) as any
+    expect(series.steps).toEqual([0, 1])
+    // pod dies; a fresh one resumes and its local rowids start at 1 again
+    const r = (await (await post('/api/runs/seq00001/resume', {}, keyOf(alice))).json()) as any
+    expect(r.max_step).toBe(1)
+    await post('/api/runs/seq00001/metrics', seq(1, 2), keyOf(alice))
+    series = (await (await api('/api/runs/seq00001/metrics/loss', { headers: keyOf(alice) })).json()) as any
+    expect(series.steps).toEqual([0, 1, 2])
+  })
+
   it('roundtrips the system snapshot, defaulting to {}', async () => {
     const system = { hostname: 'node-3', gpu_count: 8, world_size: 64 }
     await post('/api/runs', { id: 'sys00001', project: 'p', name: 'sys', system }, keyOf(alice))

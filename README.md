@@ -85,6 +85,11 @@ run = pandm.init(project="mnist", id="exp-42", resume=True)  # continue if it ex
 # resume="must" errors if exp-42 is missing; a fresh id that already exists errors unless resume is set
 ```
 
+This works across a pod restart with a blank disk: when signed in, the run is
+looked up on the server if it isn't found locally, so a restarted job (derive
+the id from something stable — the job name, `$SLURM_JOB_ID`, a checkpoint
+path) lands in the same run. Load your checkpoint, then log with its `step`.
+
 `pandm show` reports `MIN`/`MAX` per metric next to the last value (and the read
 API carries a `stats` field — `{min, max, last, count}` per key — so the
 dashboard and `pandm-inspect` can pick the best run, not just the latest value).

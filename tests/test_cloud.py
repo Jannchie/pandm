@@ -1016,3 +1016,39 @@ def test_cli_whoami_logged_in(tmp_path, monkeypatch):
         "login": "alice",
         "pending_runs": [],
     }
+
+
+def test_restarted_pod_resumes_server_run(tmp_path, server):
+    """A pod dies and comes back with a blank disk. resume=True on the same id must
+    find the run on the server, continue from its last step, and the fresh disk's
+    rowids (seq restarting at 1) must not be mistaken for replays."""
+    client, transport = server
+    pod1 = tmp_path / "pod1"
+    run = Run(
+        DualBackend(pod1, SERVER_URL, None, transport=transport),
+        project="p",
+        name="train",
+        config={},
+        run_id="pod-run-1",
+    )
+    for step in range(3):
+        run.log({"loss": 3.0 - step}, step=step)
+    run.finish()  # stands in for "the pod was killed" — the server has steps 0..2
+
+    pod2 = tmp_path / "pod2"  # nothing local
+    run2 = Run(
+        DualBackend(pod2, SERVER_URL, None, transport=transport),
+        project="p",
+        name="train",
+        config={},
+        run_id="pod-run-1",
+        resume=True,
+    )
+    assert run2._step == 3  # continues past the server's last step
+    run2.log({"loss": 0.5})  # auto step -> 3
+    run2.finish()
+
+    series = client.get("/api/runs/pod-run-1/metrics/loss").json()
+    assert series["steps"] == [0, 1, 2, 3]
+    assert series["values"][-1] == 0.5
+    assert client.get("/api/runs/pod-run-1").json()["status"] == "finished"

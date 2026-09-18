@@ -306,6 +306,11 @@ pandm: run "baseline" [a1b2c3d4] -> https://pandm.jannchie.com/?project=mnist&ru
   Pass it and keep it monotonic per key — the dashboard plots against it.
 - **Group keys with `/`.** `train/loss`, `val/loss`, `lr` — the dashboard groups by the
   prefix before the slash.
+- **A job that gets killed and restarted (preemption, OOM, spot) should land in one
+  run:** give `init()` a stable `id=` (job name, `$SLURM_JOB_ID`, checkpoint dir) and
+  `resume=True`. Works on a blank disk too — when signed in the run is found on the
+  server — so load the checkpoint and log with its `step`; the auto counter also
+  continues past the last logged step.
 - **Resuming a training? reuse the `group=`.** A run split across restarts (preemption,
   a second stage, a manual resume) is *one* experiment. Give every segment the same
   `group=` and keep `step` continuing where the previous segment stopped — the

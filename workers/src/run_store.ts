@@ -319,6 +319,12 @@ export class RunStore extends DurableObject<Env> {
     // the old terminal status/finished_at over the reopened row.
     this.state.status = 'running'
     this.state.finishedAt = null
+    // The seq watermarks are the pushing client's local rowids; a restarted pod
+    // (blank disk, same run id) counts from 1 again, so a resume opens a new seq
+    // space — otherwise everything it pushes looks like a replay and is dropped.
+    this.state.seqM = 0
+    this.state.seqH = 0
+    await this.env.DB.prepare('DELETE FROM sync_progress WHERE run_id = ?1').bind(runId).run()
     this.touch(ts)
     this.persistState()
     // Continue-from step: DO-served runs keep it in segments; a legacy run (empty

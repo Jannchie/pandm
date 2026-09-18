@@ -532,6 +532,10 @@ class LocalStore:
                 " WHERE id = ?",
                 (ts, ts, run_id),
             )
+            # Server side: the seq watermark is the pushing client's local rowid,
+            # and a restarted pod (blank disk, same run id) counts from 1 again —
+            # without a reset every row it pushes would look like a replay.
+            self._db.execute("DELETE FROM sync_progress WHERE run_id = ?", (run_id,))
             row = self._db.execute(
                 "SELECT MAX(step) AS m FROM metrics WHERE run_id = ?", (run_id,)
             ).fetchone()

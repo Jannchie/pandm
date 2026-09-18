@@ -281,22 +281,31 @@ class DualBackend:
             ),
         )
 
+    def _remote(self) -> RemoteBackend:
+        return RemoteBackend(self._server, self._api_key, transport=self._transport)
+
     def run_exists(self, run_id: str) -> bool:
-        return self.local.run_exists(
-            run_id
-        )  # local-first: resume continues the local run
+        # local first; else the server — a restarted pod has a blank disk but the
+        # run it was pushing still lives on the server, and resume=True must find
+        # it. Plain GETs, bounded: a slow server must not delay the run's start.
+        if self.local.run_exists(run_id):
+            return True
+        remote = self._remote()
+        with remote.deadline(_env_float("PANDM_SYNC_TIMEOUT", _DEFAULT_TIMEOUT)):
+            return remote.run_exists(run_id)
 
     def resume_run(self, run_id: str) -> int:
         step = self.local.resume_run(run_id)
-        # flip the cloud copy back to running too, but only if it was ever synced —
-        # run_exists is a plain GET, so a never-synced run doesn't trip retry warnings.
-        # Bounded best-effort: a slow server must not delay the resumed run's start.
-        remote = RemoteBackend(self._server, self._api_key, transport=self._transport)
+        # Reopen the cloud copy too and continue from whichever side got further:
+        # on a fresh pod the local row was just created and knows no steps. Only
+        # if it was ever synced — run_exists is a plain GET, so a never-synced run
+        # doesn't trip retry warnings. Best-effort: local is the truth.
+        remote = self._remote()
         with remote.deadline(_env_float("PANDM_SYNC_TIMEOUT", _DEFAULT_TIMEOUT)):
             if remote.run_exists(run_id):
                 try:
-                    remote.resume_run(run_id)
-                except Exception:  # noqa: BLE001 — remote catches up on finish; local is the truth
+                    step = max(step, remote.resume_run(run_id))
+                except Exception:  # noqa: BLE001 — remote catches up on finish
                     pass
         return step
 
